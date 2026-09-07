@@ -1,0 +1,10 @@
+import { Router } from "express";
+import { validateBody } from "../../middlewares/validate.middleware.js";
+import { requireAuth } from "../../middlewares/auth.middleware.js";
+import { loginSchema } from "./authentication.types.js";
+import * as controller from "./authentication.controller.js";
+const router = Router();
+router.post("/login", validateBody(loginSchema), controller.login);
+router.get("/session", requireAuth, controller.session);
+router.post("/logout", controller.logout);
+export default router;

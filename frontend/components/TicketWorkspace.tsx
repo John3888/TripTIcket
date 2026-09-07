@@ -1,0 +1,222 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { MapPin, Search, Trash2 } from "lucide-react";
+import { ticketService } from "@/services/ticket.service";
+import type { Ticket, User } from "@/types/trip-ticket";
+import { StatusPill } from "./ui/StatusPill";
+import { ScreenState } from "./ui/ScreenState";
+import { DownloadReportButton, PrintReceiptButton } from "./PrintReceiptButton";
+export function TicketWorkspace({
+  kind = "pending",
+  user,
+}: {
+  kind?: "pending" | "outgoing" | "history";
+  user: User;
+}) {
+  const [records, setRecords] = useState<Ticket[]>([]),
+    [query, setQuery] = useState(""),
+    [selected, setSelected] = useState<Ticket | null>(null),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    ticketService
+      .store(kind)
+      .then((s) => {
+        if (active) {
+          setRecords(s[kind]);
+          setSelected(s[kind][0] || null);
+        }
+      })
+      .catch((e) => active && setError(e instanceof Error ? e.message : "Requests unavailable."))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [kind]);
+  const filtered = useMemo(
+      () =>
+        records.filter((t) =>
+          (t.id + t.requestedBy + t.destination).toLowerCase().includes(query.toLowerCase()),
+        ),
+      [records, query],
+    ),
+    update = (next: Ticket[]) => {
+      setRecords(next);
+      setSelected(next.find((t) => t.id === selected?.id) || next[0] || null);
+    },
+    act = async (action: string) => {
+      if (!selected) return;
+      try {
+        update((await ticketService.action(selected.id, action, user))[kind]);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Action failed.");
+      }
+    },
+    remove = async () => {
+      if (selected && confirm(`Delete ${selected.id}?`))
+        try {
+          update((await ticketService.remove(selected.id))[kind]);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Delete failed.");
+        }
+    };
+  if (loading)
+    return (
+      <ScreenState
+        kind="loading"
+        title="Loading trip tickets"
+        message="Retrieving the latest request store…"
+      />
+    );
+  return (
+    <section className="workspace">
+      <div className="ticket-rail">
+        <label className="search">
+          <Search />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search ticket or employee"
+          />
+        </label>
+        <div className="list-meta">
+          <b>{filtered.length} tickets</b>
+          <DownloadReportButton />
+        </div>
+        <div className="ticket-list">
+          {filtered.map((t) => (
+            <button
+              key={t.id}
+              className={selected?.id === t.id ? "selected" : ""}
+              onClick={() => setSelected(t)}
+            >
+              <span>
+                <b>{t.id}</b>
+                <StatusPill status={t.status} />
+              </span>
+              <strong>{t.requestedBy}</strong>
+              <small>
+                <MapPin />
+                {t.destination}
+              </small>
+              <time>{date(t.createdAt)}</time>
+            </button>
+          ))}
+          {!filtered.length && (
+            <ScreenState
+              title="No matching tickets"
+              message="No requests are currently in this stage."
+            />
+          )}
+        </div>
+      </div>
+      {selected ? (
+        <article className="ticket-detail">
+          <div className="detail-head">
+            <div>
+              <p className="eyebrow">TRIP TICKET</p>
+              <h2>{selected.id}</h2>
+              <p>Requested {date(selected.createdAt)}</p>
+            </div>
+            <StatusPill status={selected.status} />
+          </div>
+          {error && <p role="alert">{error}</p>}
+          <div className="detail-grid">
+            <Field label="Requested by" value={selected.requestedBy} />
+            <Field label="Standby vehicle" value={selected.plate} />
+            <Field label="Destination" value={selected.destination} />
+            <Field label="Duration" value={selected.duration || duration(selected)} />
+          </div>
+          <section className="purpose">
+            <span>Purpose of travel</span>
+            <p>{selected.purpose}</p>
+          </section>
+          <section className="approval-route">
+            <h3>Approval route</h3>
+            <Approval
+              name="Department head"
+              by={selected.notedBySupervisor}
+              at={selected.notedBySupervisorAt}
+            />
+            <Approval name="HR head" by={selected.notedByHr} at={selected.notedByHrAt} />
+            <Approval name="Finance head" by={selected.approvedBy} at={selected.approvedAt} />
+          </section>
+          <footer className="detail-actions">
+            <PrintReceiptButton ticketId={selected.id} />
+            {selected.status === "pending" &&
+              !selected.notedBySupervisor &&
+              !selected.notedByHr &&
+              user.role === "Administrator" && (
+                <button className="btn danger" onClick={remove}>
+                  <Trash2 /> Delete
+                </button>
+              )}
+            {selected.approvalActions?.includes("deny") && (
+              <button className="btn danger" onClick={() => act("deny")}>
+                Deny
+              </button>
+            )}
+            {selected.approvalActions?.includes("note") && (
+              <button className="btn primary" onClick={() => act("note")}>
+                {user.role === "HR Head" && selected.requesterDepartment === "HUMAN_RESOURCES"
+                  ? "Approve as Department & HR Head"
+                  : "Add Required Note"}
+              </button>
+            )}
+            {selected.approvalActions?.includes("approve") && (
+              <button className="btn primary" onClick={() => act("approve")}>
+                {selected.requesterDepartment === "FINANCE"
+                  ? "Approve as Department & Finance Head"
+                  : "Approve"}
+              </button>
+            )}
+          </footer>
+        </article>
+      ) : (
+        <ScreenState
+          kind={error ? "error" : "empty"}
+          title={error ? "Tickets unavailable" : "No ticket selected"}
+          message={error || "Select a ticket to view details."}
+        />
+      )}
+    </section>
+  );
+}
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <MapPin />
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
+}
+function Approval({ name, by, at }: { name: string; by?: string | null; at?: string | null }) {
+  return (
+    <div>
+      <i className={by ? "done" : ""}>{by ? "✓" : "·"}</i>
+      <span>
+        <b>{name}</b>
+        <small>{by ? `${by}${at ? ` · ${date(at)}` : ""}` : "Waiting"}</small>
+      </span>
+    </div>
+  );
+}
+function date(v?: string | null) {
+  if (!v) return "Date unavailable";
+  const d = new Date(v);
+  return Number.isNaN(d.valueOf()) ? v : d.toLocaleString();
+}
+function duration(t: Ticket) {
+  return (
+    [
+      [t.days, "day"],
+      [t.hours, "hour"],
+      [t.minutes, "minute"],
+    ]
+      .filter(([v]) => Number(v) > 0)
+      .map(([v, n]) => `${v} ${n}${Number(v) === 1 ? "" : "s"}`)
+      .join(" ") || "Not provided"
+  );
+}

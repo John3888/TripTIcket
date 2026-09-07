@@ -1,0 +1,10 @@
+import { Router } from "express";
+import { validateBody } from "../../middlewares/validate.middleware.js";
+import { requireAuth, requireRole } from "../../middlewares/auth.middleware.js";
+import { createRequestSchema, actionSchema } from "./request.validation.js";
+import * as requestController from "./request.controller.js";
+const requestRouter = Router();
+requestRouter.post("/", validateBody(createRequestSchema), requestController.create);
+requestRouter.post("/:id/action", validateBody(actionSchema), requestController.action);
+requestRouter.delete("/:id", requireAuth, requireRole("Administrator"), requestController.remove);
+export default requestRouter;

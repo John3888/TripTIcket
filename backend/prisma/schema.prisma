@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Stable department keys. Keep display labels in the frontend department
+// configuration so they can evolve without changing persisted data.
+enum Department {
+  MIS
+  FINANCE
+  HUMAN_RESOURCES
+  OPERATIONS
+}
+
+enum VehicleStatus {
+  STANDBY
+  ON_TRIP
+  INACTIVE
+}
+
+enum NotificationMode {
+  ON
+  SILENT
+  OFF
+}
+
+enum TripStatus {
+  PENDING
+  NOTED
+  APPROVED
+  ONGOING
+  COMPLETED
+  DENIED
+}
+
+enum NotificationReceiptStatus {
+  READ
+  CLOSED
+}
+
+model Employee {
+  employeeId  String        @id @map("employee_id") @db.VarChar(24)
+  firstName   String        @map("first_name") @db.VarChar(80)
+  middleName  String        @map("middle_name") @db.VarChar(80)
+  surname     String        @db.VarChar(80)
+  displayName String        @map("display_name") @db.VarChar(255)
+  designation String        @db.VarChar(80)
+  role        String        @db.VarChar(80)
+  department  Department    @default(OPERATIONS)
+  email       String        @unique @db.VarChar(255)
+  rfidUid     String?       @unique @map("rfid_uid") @db.VarChar(32)
+  status      AccountStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  user        User?
+  requests    TripRequest[]
+
+  @@map("employees")
+}
+
+model User {
+  userId               String                @id @map("user_id") @db.VarChar(24)
+  employeeId           String                @unique @map("employee_id") @db.VarChar(24)
+  passwordHash         String                @map("password_hash") @db.VarChar(255)
+  appRole              String                @map("app_role") @db.VarChar(80)
+  notificationMode     NotificationMode      @default(ON) @map("notification_mode")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  employee             Employee              @relation(fields: [employeeId], references: [employeeId], onDelete: Restrict)
+  notificationReceipts NotificationReceipt[]
+
+  @@map("users")
+}
+
+model Vehicle {
+  vehicleId   String        @id @map("vehicle_id") @db.VarChar(24)
+  plate       String        @unique @db.VarChar(32)
+  status      VehicleStatus @default(STANDBY)
+  description String        @db.VarChar(255)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  requests    TripRequest[]
+
+  @@map("vehicles")
+}
+
+model WorkflowStep {
+  step        Int    @id
+  status      String @db.VarChar(32)
+  actorRole   String @map("actor_role") @db.VarChar(80)
+  description String @db.VarChar(500)
+
+  @@map("workflow_steps")
+}
+
+model TripRequest {
+  id                  String         @id @db.VarChar(12)
+  status              TripStatus     @default(PENDING)
+  employeeId          String         @map("employee_id") @db.VarChar(24)
+  vehicleId           String         @map("vehicle_id") @db.VarChar(24)
+  destination         String         @db.VarChar(500)
+  purpose             String         @db.Text
+  estimatedSeconds    Int            @map("estimated_seconds")
+  requestedAt         DateTime       @default(now()) @map("requested_at")
+  notedBySupervisor   String?        @map("noted_by_supervisor") @db.VarChar(255)
+  notedBySupervisorAt DateTime?      @map("noted_by_supervisor_at")
+  notedByHr           String?        @map("noted_by_hr") @db.VarChar(255)
+  notedByHrAt         DateTime?      @map("noted_by_hr_at")
+  approvedBy          String?        @map("approved_by") @db.VarChar(255)
+  approvedAt          DateTime?      @map("approved_at")
+  decisionBy          String?        @map("decision_by") @db.VarChar(255)
+  decisionStatus      String?        @map("decision_status") @db.VarChar(32)
+  departedAt          DateTime?      @map("departed_at")
+  arrivedAt           DateTime?      @map("arrived_at")
+  elapsedSeconds      Int            @default(0) @map("elapsed_seconds")
+  warned15            Boolean        @default(false)
+  flagged             Boolean        @default(false)
+  employee            Employee       @relation(fields: [employeeId], references: [employeeId], onDelete: Restrict)
+  vehicle             Vehicle        @relation(fields: [vehicleId], references: [vehicleId], onDelete: Restrict)
+  gpsPoints           GpsPoint[]
+  notifications       Notification[]
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([employeeId])
+  @@map("trip_requests")
+}
+
+model GpsPoint {
+  id             BigInt      @id @default(autoincrement())
+  tripRequestId  String      @map("trip_request_id") @db.VarChar(12)
+  deviceId       String?     @map("device_id") @db.VarChar(80)
+  latitude       Decimal     @db.Decimal(10, 7)
+  longitude      Decimal     @db.Decimal(10, 7)
+  speedKph       Decimal?    @map("speed_kph") @db.Decimal(8, 2)
+  heading        Decimal?    @db.Decimal(8, 2)
+  accuracyMeters Decimal?    @map("accuracy_meters") @db.Decimal(8, 2)
+  recordedAt     DateTime    @map("recorded_at")
+  tripRequest    TripRequest @relation(fields: [tripRequestId], references: [id], onDelete: Cascade)
+
+  @@index([tripRequestId, recordedAt])
+  @@map("gps_points")
+}
+
+model Notification {
+  id            String                  @id @db.VarChar(80)
+  tripRequestId String?                 @map("trip_request_id") @db.VarChar(12)
+  title         String                  @db.VarChar(255)
+  body          String                  @db.Text
+  kind          String                  @db.VarChar(80)
+  createdAt     DateTime                @default(now()) @map("created_at")
+  tripRequest   TripRequest?            @relation(fields: [tripRequestId], references: [id], onDelete: SetNull)
+  recipients    NotificationRecipient[]
+  receipts      NotificationReceipt[]
+
+  @@index([tripRequestId])
+  @@map("notifications")
+}
+
+model NotificationRecipient {
+  notificationId String       @map("notification_id") @db.VarChar(80)
+  role           String       @db.VarChar(80)
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, role])
+  @@index([role])
+  @@map("notification_recipients")
+}
+
+model NotificationReceipt {
+  notificationId String                    @map("notification_id") @db.VarChar(80)
+  userId         String                    @map("user_id") @db.VarChar(24)
+  status         NotificationReceiptStatus
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  notification   Notification              @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User                      @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([notificationId, userId, status])
+  @@index([userId])
+  @@map("notification_receipts")
+}

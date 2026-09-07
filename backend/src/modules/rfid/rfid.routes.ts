@@ -1,0 +1,11 @@
+import { Router } from "express";
+import { validateBody } from "../../middlewares/validate.middleware.js";
+import { scanSchema, cancelSchema } from "./rfid.types.js";
+import * as controller from "./rfid.controller.js";
+const router = Router();
+router.post("/health", controller.heartbeat);
+router.post("/read", controller.receive);
+router.get("/status", controller.status);
+router.post("/scan", validateBody(scanSchema), controller.scan);
+router.post("/cancel", validateBody(cancelSchema), controller.cancel);
+export default router;
