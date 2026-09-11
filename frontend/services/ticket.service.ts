@@ -1,5 +1,6 @@
 import { api } from "./api";
 import type { PublicStore, User } from "@/types/trip-ticket";
+import { receiveTicketTiming } from "./travel-time";
 export interface CreateTicket {
   plate: string;
   destination: string;
@@ -12,7 +13,11 @@ export interface CreateTicket {
 export type StaffStorePage =
   "pending" | "outgoing" | "history" | "live-gps" | "settings" | "account-registry";
 const normalizePublicStore = (partialStore: Partial<PublicStore>): PublicStore => {
-  const requests = Array.isArray(partialStore.requests) ? partialStore.requests : [];
+  const receivedAt = Date.now();
+  const requests = receiveTicketTiming(
+    Array.isArray(partialStore.requests) ? partialStore.requests : [],
+    receivedAt,
+  );
   return {
     employees: Array.isArray(partialStore.employees) ? partialStore.employees : [],
     vehicles: Array.isArray(partialStore.vehicles) ? partialStore.vehicles : [],
@@ -20,13 +25,13 @@ const normalizePublicStore = (partialStore: Partial<PublicStore>): PublicStore =
     notifications: Array.isArray(partialStore.notifications) ? partialStore.notifications : [],
     requests,
     pending: Array.isArray(partialStore.pending)
-      ? partialStore.pending
+      ? receiveTicketTiming(partialStore.pending, receivedAt)
       : requests.filter((r) => ["pending", "noted"].includes(r.status)),
     outgoing: Array.isArray(partialStore.outgoing)
-      ? partialStore.outgoing
+      ? receiveTicketTiming(partialStore.outgoing, receivedAt)
       : requests.filter((r) => ["approved", "ongoing"].includes(r.status)),
     history: Array.isArray(partialStore.history)
-      ? partialStore.history
+      ? receiveTicketTiming(partialStore.history, receivedAt)
       : requests.filter((r) => ["completed", "denied"].includes(r.status)),
     updatedAt: String(partialStore.updatedAt || ""),
     createdRequest: partialStore.createdRequest,

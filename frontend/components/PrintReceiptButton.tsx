@@ -2,6 +2,7 @@
 import { Download, Printer } from "lucide-react";
 import { useState } from "react";
 import { reportService } from "@/services/report.service";
+import { formatTravelTime } from "@/services/travel-time";
 export function DownloadReportButton() {
   return (
     <button
@@ -26,7 +27,7 @@ export function PrintReceiptButton({ ticketId }: { ticketId: string }) {
       const r = await reportService.receipt(ticketId),
         row = (l: string, v: unknown) => `<tr><th>${safe(l)}</th><td>${safe(v ?? "—")}</td></tr>`;
       win.document.write(
-        `<!doctype html><html><head><title>${safe(r.ticketId)} Receipt</title><style>body{font:14px Segoe UI,sans-serif;color:#17201a;padding:36px}header{border-bottom:4px solid #063f0d;padding-bottom:18px;margin-bottom:24px}h1{color:#063f0d}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px;border-bottom:1px solid #dbe5dd}th{width:32%;color:#063f0d}@media print{body{padding:0}}</style></head><body><header><h1>EMB Trip Ticket Receipt</h1><small>Official browser-generated copy</small></header><table>${row("Ticket", r.ticketId)}${row("Status", r.status)}${row("Employee", r.employee)}${row("Vehicle", r.vehicle)}${row("Destination", r.destination)}${row("Purpose", r.purpose)}${row("Requested", r.requestedAt)}${row("Department head", r.supervisor)}${row("HR head", r.humanResources)}${row("Approved by", r.approvedBy)}${row("Departure", r.departure)}${row("Arrival", r.arrival)}</table><p><small>Physical raw-printer configuration is managed externally on the kiosk host.</small></p></body></html>`,
+        `<!doctype html><html><head><title>${safe(r.ticketId)} Receipt</title><style>body{font:14px Segoe UI,sans-serif;color:#17201a;padding:36px}header{border-bottom:4px solid #063f0d;padding-bottom:18px;margin-bottom:24px}h1{color:#063f0d}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px;border-bottom:1px solid #dbe5dd}th{width:32%;color:#063f0d}@media print{body{padding:0}}</style></head><body><header><h1>EMB Trip Ticket Receipt</h1><small>Official browser-generated copy</small></header><table>${row("Ticket", r.ticketId)}${row("Status", r.status)}${row("Employee", r.employee)}${row("Vehicle", r.vehicle)}${row("Destination", r.destination)}${row("Purpose", r.purpose)}${row("Requested", r.requestedAt)}${row("Department head", r.supervisor)}${row("HR head", r.humanResources)}${row("Approved by", r.approvedBy)}${row("Departure", r.departure)}${row("Arrival", r.arrival)}${row("Actual travel time", formatTravelTime(r.elapsedSeconds))}</table><p><small>Physical raw-printer configuration is managed externally on the kiosk host.</small></p></body></html>`,
       );
       win.document.close();
       win.focus();

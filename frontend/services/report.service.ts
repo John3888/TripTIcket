@@ -8,6 +8,7 @@ export interface Receipt {
   purpose: string;
   requestedAt: string;
   estimatedSeconds: number;
+  elapsedSeconds: number;
   departure?: string | null;
   arrival?: string | null;
   supervisor?: string | null;

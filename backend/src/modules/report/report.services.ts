@@ -1,6 +1,7 @@
 import { Prisma, type Department } from "@prisma/client";
 import { prisma } from "../../config/prismaClient.js";
 import { AppError } from "../../middlewares/error.middleware.js";
+import { elapsedTravelSeconds } from "../request/request.timing.js";
 const escapeCsvValue = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 type ReportActor = { role: string; department: string } | undefined;
 const departmentScope = (actor: ReportActor): Prisma.TripRequestWhereInput =>
@@ -51,7 +52,7 @@ export async function requestCsv(actor: ReportActor) {
       tripRequest.approvedBy,
       tripRequest.departedAt?.toISOString(),
       tripRequest.arrivedAt?.toISOString(),
-      tripRequest.elapsedSeconds,
+      elapsedTravelSeconds(tripRequest),
       tripRequest.flagged ? "Yes" : "No",
       tripRequest.decisionBy,
       tripRequest.decisionStatus,
@@ -79,6 +80,7 @@ export async function receipt(tripRequestId: string, actor: ReportActor) {
     estimatedSeconds: tripRequest.estimatedSeconds,
     departure: tripRequest.departedAt,
     arrival: tripRequest.arrivedAt,
+    elapsedSeconds: elapsedTravelSeconds(tripRequest),
     supervisor: tripRequest.notedBySupervisor,
     humanResources: tripRequest.notedByHr,
     approvedBy: tripRequest.approvedBy,

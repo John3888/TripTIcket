@@ -14,3 +14,17 @@ export const createRealtimeClient = () =>
     // can drop an authenticated LAN connection before its cookie is accepted.
     upgrade: true,
   });
+
+export function watchTripUpdates(refresh: () => void, realtime = true) {
+  const socket = realtime ? createRealtimeClient() : null;
+  socket?.on("store:updated", refresh);
+  socket?.on("connect", refresh);
+  // Recover changes missed while the kiosk was asleep or disconnected.
+  const timer = window.setInterval(refresh, 15000);
+  window.addEventListener("focus", refresh);
+  return () => {
+    socket?.disconnect();
+    window.clearInterval(timer);
+    window.removeEventListener("focus", refresh);
+  };
+}

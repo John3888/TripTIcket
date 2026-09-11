@@ -36,6 +36,10 @@ export interface Ticket {
   destination: string;
   purpose: string;
   duration?: string;
+  departure?: string | null;
+  arrival?: string | null;
+  elapsedSeconds?: number;
+  timingReceivedAt?: number;
   days?: number;
   hours?: number;
   minutes?: number;

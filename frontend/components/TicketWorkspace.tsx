@@ -6,6 +6,8 @@ import type { Ticket, User } from "@/types/trip-ticket";
 import { StatusPill } from "./ui/StatusPill";
 import { ScreenState } from "./ui/ScreenState";
 import { DownloadReportButton, PrintReceiptButton } from "./PrintReceiptButton";
+import { TravelTime } from "./TravelTime";
+import { watchTripUpdates } from "@/services/realtime.service";
 export function TicketWorkspace({
   kind = "pending",
   user,
@@ -20,18 +22,33 @@ export function TicketWorkspace({
     [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    ticketService
-      .store(kind)
-      .then((s) => {
-        if (active) {
-          setRecords(s[kind]);
-          setSelected(s[kind][0] || null);
-        }
-      })
-      .catch((e) => active && setError(e instanceof Error ? e.message : "Requests unavailable."))
-      .finally(() => active && setLoading(false));
+    let refreshing = false;
+    const refresh = () => {
+      if (refreshing) return;
+      refreshing = true;
+      void ticketService
+        .store(kind)
+        .then((s) => {
+          if (active) {
+            setRecords(s[kind]);
+            setSelected(
+              (current) =>
+                s[kind].find((ticket) => ticket.id === current?.id) || s[kind][0] || null,
+            );
+            setError("");
+          }
+        })
+        .catch((e) => active && setError(e instanceof Error ? e.message : "Requests unavailable."))
+        .finally(() => {
+          refreshing = false;
+          if (active) setLoading(false);
+        });
+    };
+    refresh();
+    const stopWatching = watchTripUpdates(refresh);
     return () => {
       active = false;
+      stopWatching();
     };
   }, [kind]);
   const filtered = useMemo(
@@ -126,8 +143,11 @@ export function TicketWorkspace({
             <Field label="Requested by" value={selected.requestedBy} />
             <Field label="Standby vehicle" value={selected.plate} />
             <Field label="Destination" value={selected.destination} />
-            <Field label="Duration" value={selected.duration || duration(selected)} />
+            <Field label="Estimated duration" value={selected.duration || duration(selected)} />
+            {selected.departure && <Field label="Departure" value={date(selected.departure)} />}
+            {selected.arrival && <Field label="Arrival" value={date(selected.arrival)} />}
           </div>
+          <TravelTime ticket={selected} />
           <section className="purpose">
             <span>Purpose of travel</span>
             <p>{selected.purpose}</p>

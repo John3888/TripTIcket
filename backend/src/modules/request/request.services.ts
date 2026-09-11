@@ -3,9 +3,11 @@ import { prisma } from "../../config/prismaClient.js";
 import { ENV } from "../../config/env.js";
 import { AppError } from "../../middlewares/error.middleware.js";
 import { getApprovalActions, getApprovalUpdate } from "./request.approval-policy.js";
+import { elapsedTravelSeconds } from "./request.timing.js";
 
 type RequestActor = {
   employeeId: string;
+  rfidUid?: string;
   name: string;
   role: string;
   department: string;
@@ -33,6 +35,7 @@ function getRfidRequestActor(token: unknown): RequestActor {
       throw new Error();
     return {
       employeeId: proof.employeeId,
+      rfidUid: proof.rfidUid,
       name: proof.name,
       role: proof.role,
       department: proof.department,
@@ -66,16 +69,21 @@ const createNotification = async (
 export async function createTripRequest(requestInput: any) {
   const requestActor = getRfidRequestActor(requestInput.rfidToken);
   return prisma.$transaction(async (databaseTransaction) => {
+    const requestingEmployee = await databaseTransaction.employee.findUnique({
+      where: { employeeId: requestActor.employeeId },
+    });
+    if (!requestingEmployee?.rfidUid || requestingEmployee.rfidUid !== requestActor.rfidUid)
+      throw new AppError(
+        403,
+        "This card is not registered. Please scan a registered employee card.",
+      );
+    if (requestingEmployee.status !== "ACTIVE")
+      throw new AppError(403, "This employee card is inactive.");
     const requestedVehicle = await databaseTransaction.vehicle.findUnique({
       where: { plate: requestInput.plate },
     });
     if (!requestedVehicle || requestedVehicle.status !== "STANDBY")
       throw new AppError(409, "This vehicle is already requested or currently in use.");
-    const requestingEmployee = await databaseTransaction.employee.findUnique({
-      where: { employeeId: requestActor.employeeId },
-    });
-    if (!requestingEmployee || requestingEmployee.status !== "ACTIVE")
-      throw new AppError(400, "The scanned employee is not active.");
     const latestTripRequest = await databaseTransaction.tripRequest.findFirst({
       orderBy: { id: "desc" },
       select: { id: true },
@@ -195,12 +203,7 @@ export async function processTripRequestAction(
           "started",
         );
       } else {
-        const elapsedTripSeconds = tripRequest.departedAt
-          ? Math.max(
-              0,
-              Math.round((actionTime.getTime() - tripRequest.departedAt.getTime()) / 1000),
-            )
-          : tripRequest.elapsedSeconds;
+        const elapsedTripSeconds = elapsedTravelSeconds(tripRequest, actionTime);
         tripRequestUpdate = {
           status: "COMPLETED",
           arrivedAt: actionTime,

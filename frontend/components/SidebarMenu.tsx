@@ -31,6 +31,7 @@ export function SidebarMenu() {
           onClick={() => setExpanded((value) => !value)}
           aria-label={expanded ? "Collapse menu" : "Expand menu"}
         >
+          
           <ChevronLeft aria-hidden="true" />
         </button>
       </div>

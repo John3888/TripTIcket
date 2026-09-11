@@ -4,6 +4,7 @@ import { ENV } from "../../config/env.js";
 import { AppError } from "../../middlewares/error.middleware.js";
 import * as device from "./rfid.device-client.js";
 import { normalizeUid } from "./rfid.types.js";
+import { tripTiming } from "../request/request.timing.js";
 
 const recent = new Map<string, number>();
 export async function scan(body: { type: string; timeoutMs?: number; session?: string }) {
@@ -22,21 +23,10 @@ export async function scan(body: { type: string; timeoutMs?: number; session?: s
     include: { user: true },
   });
   if (!employee)
-    return {
-      ok: true,
-      type: body.type,
-      uid,
-      rawUid: String(payload.rawUid || payload.uid),
-      rfidToken: "",
-      employee: {
-        employeeId: "",
-        name: "Unregistered card",
-        role: "",
-        department: "OPERATIONS",
-        status: "Inactive",
-      },
-      user: null,
-    };
+    throw new AppError(
+      403,
+      "This card is not registered. Please contact an administrator to register it.",
+    );
   if (employee.status !== "ACTIVE") throw new AppError(403, "This employee card is inactive.");
   // Movement tickets belong to the verified card holder. The public kiosk
   // store deliberately hides employee identities and cannot identify owners.
@@ -49,6 +39,9 @@ export async function scan(body: { type: string; timeoutMs?: number; session?: s
             status: true,
             destination: true,
             requestedAt: true,
+            departedAt: true,
+            arrivedAt: true,
+            elapsedSeconds: true,
             vehicle: { select: { plate: true } },
           },
           orderBy: { requestedAt: "desc" },
@@ -58,6 +51,7 @@ export async function scan(body: { type: string; timeoutMs?: number; session?: s
     {
       purpose: "rfid-kiosk",
       employeeId: employee.employeeId,
+      rfidUid: uid,
       name: employee.displayName,
       role: employee.role,
       department: employee.department,
@@ -80,6 +74,7 @@ export async function scan(body: { type: string; timeoutMs?: number; session?: s
         requestedBy: employee.displayName,
         purpose: "",
         createdAt: ticket.requestedAt.toISOString(),
+        ...tripTiming(ticket),
       })),
     }),
     employee: {

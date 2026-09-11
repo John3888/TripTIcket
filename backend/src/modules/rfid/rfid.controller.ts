@@ -1,6 +1,11 @@
 import type { RequestHandler } from "express";
 import * as service from "./rfid.services.js";
 export const scan: RequestHandler = async (req, res) => {
+  res.clearCookie("EMB_TTR_RFID_PROOF", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
   const result = await service.scan(req.body);
   res.cookie("EMB_TTR_RFID_PROOF", result.rfidToken, {
     httpOnly: true,

@@ -7,19 +7,43 @@ import { ticketService } from "@/services/ticket.service";
 import type { Ticket } from "@/types/trip-ticket";
 import { StatusPill } from "./ui/StatusPill";
 import { ScreenState } from "./ui/ScreenState";
+import { TravelTime } from "./TravelTime";
+import { watchTripUpdates } from "@/services/realtime.service";
 
 export function RequesterTicketList({ kind }: { kind: "pending" | "outgoing" | "history" }) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
-    ticketService
-      .kioskStore()
-      .then((store) => setTickets(store[kind]))
-      .catch((reason) =>
-        setError(reason instanceof Error ? reason.message : "Ticket records are unavailable."),
-      )
-      .finally(() => setLoading(false));
+    let active = true;
+    let refreshing = false;
+    const refresh = () => {
+      if (refreshing) return;
+      refreshing = true;
+      void ticketService
+        .kioskStore()
+        .then((store) => {
+          if (active) {
+            setTickets(store[kind]);
+            setError("");
+          }
+        })
+        .catch(
+          (reason) =>
+            active &&
+            setError(reason instanceof Error ? reason.message : "Ticket records are unavailable."),
+        )
+        .finally(() => {
+          refreshing = false;
+          if (active) setLoading(false);
+        });
+    };
+    refresh();
+    const stopWatching = watchTripUpdates(refresh, false);
+    return () => {
+      active = false;
+      stopWatching();
+    };
   }, [kind]);
   const label = { pending: "Pending tickets", outgoing: "Outgoing trips", history: "Trip history" }[
     kind
@@ -77,6 +101,7 @@ export function RequesterTicketList({ kind }: { kind: "pending" | "outgoing" | "
                     </span>
                     <b>{ticket.plate}</b>
                   </footer>
+                  <TravelTime ticket={ticket} />
                 </article>
               ))
             ) : (

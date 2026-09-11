@@ -24,18 +24,16 @@ export async function record(body: any) {
       recordedAt: body.recordedAt || new Date(),
     },
   });
-  emitGpsPosition({
-    ticketId: trip.id,
-    gps: {
-      id: gps.id.toString(),
-      deviceId: gps.deviceId,
-      latitude: Number(gps.latitude),
-      longitude: Number(gps.longitude),
-      speedKph: gps.speedKph === null ? null : Number(gps.speedKph),
-      heading: gps.heading === null ? null : Number(gps.heading),
-      accuracyMeters: gps.accuracyMeters === null ? null : Number(gps.accuracyMeters),
-      recordedAt: gps.recordedAt.toISOString(),
-    },
-  });
-  return { ok: true, ticketNo: trip.id, gps };
+  const position = {
+    id: gps.id.toString(),
+    deviceId: gps.deviceId,
+    latitude: Number(gps.latitude),
+    longitude: Number(gps.longitude),
+    speedKph: gps.speedKph === null ? null : Number(gps.speedKph),
+    heading: gps.heading === null ? null : Number(gps.heading),
+    accuracyMeters: gps.accuracyMeters === null ? null : Number(gps.accuracyMeters),
+    recordedAt: gps.recordedAt.toISOString(),
+  };
+  emitGpsPosition({ ticketId: trip.id, gps: position });
+  return { ok: true, ticketNo: trip.id, gps: { ...position, tripRequestId: trip.id } };
 }

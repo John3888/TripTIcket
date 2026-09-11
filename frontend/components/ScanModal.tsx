@@ -7,6 +7,7 @@ import { rfidService } from "@/services/rfid.service";
 import { ticketService } from "@/services/ticket.service";
 import type { DeviceStatus, ScanResult, Ticket } from "@/types/trip-ticket";
 import { departmentLabel } from "@/app/(admin)/config/menu.config";
+import { TravelTime } from "./TravelTime";
 
 type Props = {
   open: boolean;
@@ -40,11 +41,13 @@ export function ScanModal({
   const scanStarted = useRef(false);
   const movementInFlight = useRef(false);
   const [recording, setRecording] = useState(false);
+  const [recordedTicket, setRecordedTicket] = useState<Ticket | null>(null);
   useEffect(() => {
     if (!open) return;
     setError("");
     setMovement(null);
     setDone("");
+    setRecordedTicket(null);
     setExisting(null);
     scanStarted.current = false;
     session.current = `${registration ? "registry" : type}-${Date.now()}`;
@@ -81,9 +84,11 @@ export function ScanModal({
       const result = await rfidService.scan(type, session.current);
       if (!result.uid || !result.employee)
         throw new Error("The reader returned an incomplete response. Please scan again.");
+      if (!result.employee.employeeId || !result.rfidToken || result.employee.status !== "ACTIVE")
+        throw new Error(
+          "This card is not registered to an active employee. Please contact an administrator.",
+        );
       if (type === "movement") {
-        if (!result.employee.employeeId || !result.rfidToken)
-          throw new Error("This card is not registered to an active employee.");
         const tickets = result.movementTickets;
         if (!tickets)
           throw new Error(
@@ -115,11 +120,12 @@ export function ScanModal({
     setRecording(true);
     setError("");
     try {
-      await ticketService.action(
+      const store = await ticketService.action(
         ticket.id,
         ticket.status === "approved" ? "start" : "complete",
         movement.result.rfidToken,
       );
+      setRecordedTicket(store.requests.find((record) => record.id === ticket.id) || null);
       setDone(`${ticket.id} marked ${ticket.status === "approved" ? "departed" : "arrived"}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The movement could not be recorded.");
@@ -178,6 +184,7 @@ export function ScanModal({
             <BadgeCheck className="status-illustration" aria-hidden="true" />
             <h2 id="scan-title">Movement Recorded</h2>
             <p>{done}</p>
+            {recordedTicket && <TravelTime ticket={recordedTicket} />}
             <button className="btn primary wide" onClick={onClose}>
               Done
             </button>
@@ -199,6 +206,7 @@ export function ScanModal({
                   <small>
                     {t.destination} · {t.status === "approved" ? "Depart" : "Arrive"}
                   </small>
+                  <TravelTime ticket={t} />
                 </button>
               ))}
             </div>
@@ -234,7 +242,7 @@ export function ScanModal({
             {error && (
               <button className="btn primary wide" onClick={scan} disabled={scanning}>
                 Try reading the card again
-              </button>
+            </button>
             )}
             <button className="btn secondary wide" onClick={onClose}>
               Cancel

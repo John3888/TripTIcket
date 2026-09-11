@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prismaClient.js";
 import type { StaffPage } from "../../config/access-policy.js";
 import { getApprovalActions } from "../request/request.approval-policy.js";
+import { tripTiming } from "../request/request.timing.js";
 
 type StoreActor = {
   userId: string;
@@ -45,7 +46,7 @@ export async function publicStore({ actor, page }: StoreOptions) {
       include: {
         employee: true,
         vehicle: true,
-        gpsPoints: includeGps ? { orderBy: { recordedAt: "asc" }, take: 120 } : false,
+        gpsPoints: includeGps ? { orderBy: { recordedAt: "desc" }, take: 120 } : false,
       },
       orderBy: { requestedAt: "desc" },
     }),
@@ -71,7 +72,8 @@ export async function publicStore({ actor, page }: StoreOptions) {
   const requestRows = visibleRequests.map((r) => {
     // Prisma omits the relation for non-GPS pages, so it must be treated as
     // an empty trail rather than assuming it is always present.
-    const gpsTrail = (r.gpsPoints || []).map(gpsPoint);
+    // Fetch the newest reports, then expose the trail in chronological order.
+    const gpsTrail = (r.gpsPoints || []).map(gpsPoint).reverse();
     return {
       id: r.id,
       status: status(r.status),
@@ -97,9 +99,7 @@ export async function publicStore({ actor, page }: StoreOptions) {
       approvedAt: r.approvedAt?.toISOString() || "",
       decisionBy: r.decisionBy || "",
       decisionStatus: r.decisionStatus || "",
-      departure: r.departedAt?.toISOString() || "",
-      arrival: r.arrivedAt?.toISOString() || "",
-      elapsedSeconds: r.elapsedSeconds,
+      ...tripTiming(r),
       flagged: r.flagged,
       gps: includeGps ? gpsTrail.at(-1) || null : null,
       gpsTrail: includeGps ? gpsTrail : [],
@@ -180,6 +180,7 @@ export async function kioskStore() {
     destination: request.destination,
     purpose: "",
     createdAt: request.requestedAt.toISOString(),
+    ...tripTiming(request),
     gps: null,
     gpsTrail: [],
   }));

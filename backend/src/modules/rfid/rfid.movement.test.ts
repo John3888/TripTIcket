@@ -46,6 +46,9 @@ test("Movement scan queries approved and ongoing tickets by the verified employe
       status,
       destination: "Office",
       requestedAt: new Date("2026-09-07T08:00:00Z"),
+      departedAt: status === "ONGOING" ? new Date(Date.now() - 65000) : null,
+      arrivedAt: null,
+      elapsedSeconds: 0,
       vehicle: { plate: "TEST-123" },
     }));
   });
@@ -58,6 +61,7 @@ test("Movement scan queries approved and ongoing tickets by the verified employe
     ["approved", "ongoing"],
   );
   assert.equal(result.movementTickets?.[0]?.plate, "TEST-123");
+  assert.ok((result.movementTickets?.[1]?.elapsedSeconds || 0) >= 65);
 });
 
 test("Empty movement results are returned as an empty list", async (context) => {
@@ -156,6 +160,7 @@ test("Scanned owner can depart and arrive even with a different staff account lo
     processTripRequestAction(ticket.id, { action: "start", rfidToken }, staff),
     /not allowed/,
   );
+  ticket.departedAt = new Date(Date.now() - 125000);
   const arrival = await processTripRequestAction(
     ticket.id,
     { action: "complete", rfidToken },
@@ -163,6 +168,7 @@ test("Scanned owner can depart and arrive even with a different staff account lo
   );
   assert.equal(arrival.request.status, "COMPLETED");
   assert.ok(arrival.request.arrivedAt instanceof Date);
+  assert.ok(arrival.request.elapsedSeconds >= 125);
   assert.deepEqual(vehicleStatuses, ["ON_TRIP", "STANDBY"]);
   assert.equal(arrival.notifications[0]?.kind, "completed");
 });
