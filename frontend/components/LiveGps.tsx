@@ -23,6 +23,7 @@ import { ticketService } from "@/services/ticket.service";
 import { createRealtimeClient } from "@/services/realtime.service";
 import type { GpsPoint, Ticket } from "@/types/trip-ticket";
 import { CompanyGpsMap, type CompanyGpsMapHandle } from "./maps/CompanyGpsMap";
+import { OverdueBadge } from "./TravelTime";
 import {
   formatGpsTime,
   hasValidCoordinates,
@@ -563,6 +564,7 @@ export function LiveGps() {
                         </span>
                         <span className="gps-row-copy">
                           <b>{trip.plate}</b>
+                          <OverdueBadge ticket={trip} />
                           <span>{trip.destination}</span>
                           {gps ? (
                             <>

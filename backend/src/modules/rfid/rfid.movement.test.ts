@@ -41,6 +41,8 @@ test("Movement scan queries approved and ongoing tickets by the verified employe
       status: { in: ["APPROVED", "ONGOING"] },
     });
     assert.equal(query.select.employee, undefined);
+    assert.equal(query.select.estimatedSeconds, true);
+    assert.equal(query.select.flagged, true);
     return ["APPROVED", "ONGOING"].map((status, index) => ({
       id: `TRIP-${index}`,
       status,
@@ -49,6 +51,8 @@ test("Movement scan queries approved and ongoing tickets by the verified employe
       departedAt: status === "ONGOING" ? new Date(Date.now() - 65000) : null,
       arrivedAt: null,
       elapsedSeconds: 0,
+      estimatedSeconds: 60,
+      flagged: false,
       vehicle: { plate: "TEST-123" },
     }));
   });
@@ -62,6 +66,9 @@ test("Movement scan queries approved and ongoing tickets by the verified employe
   );
   assert.equal(result.movementTickets?.[0]?.plate, "TEST-123");
   assert.ok((result.movementTickets?.[1]?.elapsedSeconds || 0) >= 65);
+  assert.equal(result.movementTickets?.[0]?.flagged, false);
+  assert.equal(result.movementTickets?.[1]?.flagged, true);
+  assert.ok((result.movementTickets?.[1]?.overdueSeconds || 0) >= 5);
 });
 
 test("Empty movement results are returned as an empty list", async (context) => {
@@ -103,7 +110,7 @@ test("Scanned owner can depart and arrive even with a different staff account lo
     employee: { department: employee.department },
     vehicleId: "VEHICLE-1",
     status: "APPROVED",
-    estimatedSeconds: 3600,
+    estimatedSeconds: 120,
     flagged: false,
     elapsedSeconds: 0,
   };
@@ -169,6 +176,7 @@ test("Scanned owner can depart and arrive even with a different staff account lo
   assert.equal(arrival.request.status, "COMPLETED");
   assert.ok(arrival.request.arrivedAt instanceof Date);
   assert.ok(arrival.request.elapsedSeconds >= 125);
+  assert.equal(arrival.request.flagged, true);
   assert.deepEqual(vehicleStatuses, ["ON_TRIP", "STANDBY"]);
   assert.equal(arrival.notifications[0]?.kind, "completed");
 });

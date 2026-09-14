@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 "use client";
-import { BadgeCheck, CreditCard, Radio, ShieldCheck, X } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, CreditCard, Radio, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { accountService, type ExistingCardAssignment } from "@/services/account.service";
 import { rfidService } from "@/services/rfid.service";
@@ -38,10 +38,68 @@ export function ScanModal({
     } | null>(null),
     [done, setDone] = useState("");
   const session = useRef("");
+  const sessionSequence = useRef(0);
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef(onClose);
   const scanStarted = useRef(false);
+  const activeScan = useRef("");
   const movementInFlight = useRef(false);
   const [recording, setRecording] = useState(false);
   const [recordedTicket, setRecordedTicket] = useState<Ticket | null>(null);
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dialog = dialogRef.current;
+    dialog?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const controls = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!first) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          document.activeElement === dialog ||
+          !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last ||
+          document.activeElement === dialog ||
+          !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     setError("");
@@ -49,23 +107,36 @@ export function ScanModal({
     setDone("");
     setRecordedTicket(null);
     setExisting(null);
+    setScanning(false);
+    setRecording(false);
+    setStatus({ connected: false, message: "Checking card reader…" });
     scanStarted.current = false;
-    session.current = `${registration ? "registry" : type}-${Date.now()}`;
+    const currentSession = `${registration ? "registry" : type}-${Date.now()}-${++sessionSequence.current}`;
+    session.current = currentSession;
     rfidService
       .status()
-      .then(setStatus)
-      .catch(() => setStatus({ connected: false, message: "ESP32 reader unavailable" }));
+      .then((result) => {
+        if (session.current === currentSession) setStatus(result);
+      })
+      .catch(() => {
+        if (session.current === currentSession)
+          setStatus({ connected: false, message: "Card reader unavailable" });
+      });
     return () => {
-      if (session.current) rfidService.cancel(session.current).catch(() => undefined);
+      if (session.current === currentSession) session.current = "";
+      rfidService.cancel(currentSession).catch(() => undefined);
     };
   }, [open, type, registration]);
   const scan = async () => {
-    if (scanning) return;
+    const currentSession = session.current;
+    if (!currentSession || activeScan.current === currentSession) return;
+    activeScan.current = currentSession;
     setScanning(true);
     setError("");
     try {
       if (registration) {
-        const result = await accountService.scan(session.current);
+        const result = await accountService.scan(currentSession);
+        if (session.current !== currentSession) return;
         if (result.existing) {
           setExisting(result.existing);
           return;
@@ -81,7 +152,8 @@ export function ScanModal({
         onClose();
         return;
       }
-      const result = await rfidService.scan(type, session.current);
+      const result = await rfidService.scan(type, currentSession);
+      if (session.current !== currentSession) return;
       if (!result.uid || !result.employee)
         throw new Error("The reader returned an incomplete response. Please scan again.");
       if (!result.employee.employeeId || !result.rfidToken || result.employee.status !== "ACTIVE")
@@ -104,9 +176,11 @@ export function ScanModal({
       onScan?.(result);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The card could not be read.");
+      if (session.current === currentSession)
+        setError(e instanceof Error ? e.message : "The card could not be read.");
     } finally {
-      setScanning(false);
+      if (activeScan.current === currentSession) activeScan.current = "";
+      if (session.current === currentSession) setScanning(false);
     }
   };
   useEffect(() => {
@@ -116,6 +190,7 @@ export function ScanModal({
   }, [open, registration, existing, movement]);
   const applyMovement = async (ticket: Ticket) => {
     if (!movement || movementInFlight.current) return;
+    const currentSession = session.current;
     movementInFlight.current = true;
     setRecording(true);
     setError("");
@@ -125,22 +200,61 @@ export function ScanModal({
         ticket.status === "approved" ? "start" : "complete",
         movement.result.rfidToken,
       );
+      if (session.current !== currentSession) return;
       setRecordedTicket(store.requests.find((record) => record.id === ticket.id) || null);
       setDone(`${ticket.id} marked ${ticket.status === "approved" ? "departed" : "arrived"}.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The movement could not be recorded.");
+      if (session.current === currentSession)
+        setError(e instanceof Error ? e.message : "The movement could not be recorded.");
     } finally {
       movementInFlight.current = false;
-      setRecording(false);
+      if (session.current === currentSession) setRecording(false);
     }
   };
   if (!open) return null;
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="scan-modal" role="dialog" aria-modal="true" aria-labelledby="scan-title">
+      <section
+        ref={dialogRef}
+        tabIndex={-1}
+        className="scan-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scan-title"
+      >
         <button className="modal-close" onClick={onClose} aria-label="Cancel scan">
           <X />
         </button>
+        <div className="scan-brand">
+          <ShieldCheck aria-hidden="true" />
+          <span>
+            EMB TRIP TICKET<span>Secure identity station</span>
+          </span>
+        </div>
+        <ol className="scan-progress" aria-label="Card reading progress">
+          <li className="is-complete">
+            <span>
+              <Check size={14} aria-hidden="true" />
+            </span>
+            Prepare
+          </li>
+          <li
+            className={existing || movement || done ? "is-complete" : "is-current"}
+            aria-current={!existing && !movement && !done ? "step" : undefined}
+          >
+            <span>
+              {existing || movement || done ? <Check size={14} aria-hidden="true" /> : "2"}
+            </span>
+            Scan card
+          </li>
+          <li
+            className={done || existing ? "is-complete" : movement ? "is-current" : ""}
+            aria-current={movement && !done ? "step" : undefined}
+          >
+            <span>{done || existing ? <Check size={14} aria-hidden="true" /> : "3"}</span>
+            {done || existing ? "Confirmed" : "Confirm"}
+          </li>
+        </ol>
         {existing ? (
           <>
             <BadgeCheck className="status-illustration" aria-hidden="true" />
@@ -172,7 +286,13 @@ export function ScanModal({
                 <b>{existing.email}</b>
               </div>
             </div>
-            <button className="btn secondary wide" onClick={() => setExisting(null)}>
+            <button
+              className="btn secondary wide"
+              onClick={() => {
+                scanStarted.current = false;
+                setExisting(null);
+              }}
+            >
               Scan another card
             </button>
             <button className="btn primary wide" onClick={onClose}>
@@ -183,7 +303,7 @@ export function ScanModal({
           <>
             <BadgeCheck className="status-illustration" aria-hidden="true" />
             <h2 id="scan-title">Movement Recorded</h2>
-            <p>{done}</p>
+            <p role="status">{done}</p>
             {recordedTicket && <TravelTime ticket={recordedTicket} />}
             <button className="btn primary wide" onClick={onClose}>
               Done
@@ -198,18 +318,27 @@ export function ScanModal({
               {movement.tickets.map((t) => (
                 <button
                   key={t.id}
-                  className="btn secondary wide"
+                  className="btn secondary wide movement-choice"
                   onClick={() => applyMovement(t)}
                   disabled={recording}
                 >
-                  <b>{t.id}</b>
-                  <small>
-                    {t.destination} · {t.status === "approved" ? "Depart" : "Arrive"}
-                  </small>
+                  <span className="movement-choice-heading">
+                    <b>{t.id}</b>
+                    <span className="movement-choice-action">
+                      {t.status === "approved" ? "Record departure" : "Record arrival"}
+                      <ArrowRight size={15} aria-hidden="true" />
+                    </span>
+                  </span>
+                  <small>{t.destination}</small>
                   <TravelTime ticket={t} />
                 </button>
               ))}
             </div>
+            {recording && (
+              <p className="scan-message" role="status">
+                Saving this movement. Please wait…
+              </p>
+            )}
             {error && (
               <p className="scan-message error" role="alert">
                 {error}
@@ -218,20 +347,40 @@ export function ScanModal({
           </>
         ) : (
           <>
-            <div className={`device-state ${status.connected ? "online" : "offline"}`}>
+            <div
+              role="status"
+              className={`device-state ${status.connected ? "online" : "offline"}`}
+            >
               <i />
               {status.message}
             </div>
             <div className={`reader-target ${scanning ? "is-scanning" : ""}`}>
               <span className="reader-ring" />
               <CreditCard className="card-illustration" aria-hidden="true" />
-              <Radio className="radio-icon" />
+              <Radio className="radio-icon" aria-hidden="true" />
             </div>
             <p className="eyebrow">RFID IDENTITY CHECK</p>
-            <h2 id="scan-title">{scanning ? "Ready for your card" : "Card reader paused"}</h2>
-            <p className={error ? "scan-message error" : "scan-message"}>
-              {error || (scanning ? "Hold your employee ID over the reader." : message)}
+            <h2 id="scan-title">
+              {scanning ? "Tap your card to continue" : "Let’s try that again"}
+            </h2>
+            <p
+              role={error ? "alert" : "status"}
+              className={error ? "scan-message error" : "scan-message"}
+            >
+              {error || message}
             </p>
+            <div className="scan-guidance">
+              <CreditCard size={19} aria-hidden="true" />
+              <p>
+                Place one employee ID flat over the reader and hold it still until the next screen
+                appears.
+              </p>
+            </div>
+            {!status.connected && (
+              <p className="reader-help">
+                If your card is not detected, check the reader’s power and connection, then retry.
+              </p>
+            )}
             <div className="capability-note">
               <ShieldCheck />
               <span>
@@ -242,7 +391,7 @@ export function ScanModal({
             {error && (
               <button className="btn primary wide" onClick={scan} disabled={scanning}>
                 Try reading the card again
-            </button>
+              </button>
             )}
             <button className="btn secondary wide" onClick={onClose}>
               Cancel

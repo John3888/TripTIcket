@@ -39,6 +39,11 @@ export interface Ticket {
   departure?: string | null;
   arrival?: string | null;
   elapsedSeconds?: number;
+  estimatedSeconds?: number;
+  overdueSeconds?: number;
+  isOverdue?: boolean;
+  flagged?: boolean;
+  expectedReturnAt?: string | null;
   timingReceivedAt?: number;
   days?: number;
   hours?: number;

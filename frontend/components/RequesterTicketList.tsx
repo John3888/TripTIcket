@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowLeft, Clock3, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ticketService } from "@/services/ticket.service";
@@ -52,9 +53,14 @@ export function RequesterTicketList({ kind }: { kind: "pending" | "outgoing" | "
     <div className="kiosk">
       <header className="kiosk-header">
         <Link href="/request" className="kiosk-brand">
-          <b>EMB</b>
+          <Image
+            src="/assets/emb-logo.png"
+            width={62}
+            height={62}
+            alt="EMB Capital Lending Corporation"
+          />
           <span>
-            <b>TRIP TICKET SYSTEM</b>
+            <b>EMB CAPITAL LENDING CORPORATION</b>
             <small>EMPLOYEE SELF-SERVICE</small>
           </span>
         </Link>
@@ -68,6 +74,21 @@ export function RequesterTicketList({ kind }: { kind: "pending" | "outgoing" | "
         <p className="records-copy">
           These tickets are visible to help staff and employees follow the current trip workflow.
         </p>
+        <nav className="records-tabs" aria-label="Trip records">
+          {(["pending", "outgoing", "history"] as const).map((tab) => (
+            <Link
+              key={tab}
+              href={`/request/${tab}`}
+              aria-current={kind === tab ? "page" : undefined}
+            >
+              {tab === "pending"
+                ? "Pending tickets"
+                : tab === "outgoing"
+                  ? "Outgoing trips"
+                  : "Trip history"}
+            </Link>
+          ))}
+        </nav>
         {loading ? (
           <ScreenState
             kind="loading"
@@ -115,7 +136,7 @@ export function RequesterTicketList({ kind }: { kind: "pending" | "outgoing" | "
         )}
       </main>
       <footer className="kiosk-footer">
-        Official use only <span /> Environmental Management Bureau Operations
+        Official use only <span /> EMB Capital Lending Corporation
       </footer>
     </div>
   );

@@ -324,7 +324,7 @@ function KioskFrame({ children }: { children: React.ReactNode }) {
       </header>
       {children}
       <footer className="kiosk-footer">
-        Official use only <span /> Environmental Management Bureau Operations
+        Official use only <span /> EMB Capital Lending Corporation
       </footer>
     </div>
   );

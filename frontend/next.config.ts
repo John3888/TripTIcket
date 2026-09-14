@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import os from "node:os";
 
 // const nextConfig: NextConfig = {
 
@@ -21,8 +22,6 @@ import type { NextConfig } from "next";
 // };
 
 // development auto detect local network IPs and add them to allowedDevOrigins
-
-const os = require("os");
 
 function getLocalIPs() {
   const interfaces = os.networkInterfaces();
@@ -55,8 +54,7 @@ const allowedDevOrigins = [
   // "https://serviamusmedicalclinic.org",
 ];
 
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+const nextConfig: NextConfig = {
   allowedDevOrigins,
 };
 

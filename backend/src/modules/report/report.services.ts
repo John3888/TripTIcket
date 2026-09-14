@@ -1,7 +1,7 @@
 import { Prisma, type Department } from "@prisma/client";
 import { prisma } from "../../config/prismaClient.js";
 import { AppError } from "../../middlewares/error.middleware.js";
-import { elapsedTravelSeconds } from "../request/request.timing.js";
+import { tripTiming } from "../request/request.timing.js";
 const escapeCsvValue = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
 type ReportActor = { role: string; department: string } | undefined;
 const departmentScope = (actor: ReportActor): Prisma.TripRequestWhereInput =>
@@ -34,10 +34,15 @@ export async function requestCsv(actor: ReportActor) {
     "Flagged",
     "DecisionBy",
     "DecisionStatus",
+    "OverdueSeconds",
+    "ExpectedReturnAt",
   ];
+  const reportTime = new Date();
   return [
     headers,
-    ...tripRequests.map((tripRequest) => [
+    ...tripRequests.map((tripRequest) => {
+      const timing = tripTiming(tripRequest, reportTime);
+      return [
       tripRequest.id,
       tripRequest.status.toLowerCase(),
       tripRequest.employee.displayName,
@@ -52,11 +57,14 @@ export async function requestCsv(actor: ReportActor) {
       tripRequest.approvedBy,
       tripRequest.departedAt?.toISOString(),
       tripRequest.arrivedAt?.toISOString(),
-      elapsedTravelSeconds(tripRequest),
-      tripRequest.flagged ? "Yes" : "No",
+      timing.elapsedSeconds,
+      timing.flagged ? "Yes" : "No",
       tripRequest.decisionBy,
       tripRequest.decisionStatus,
-    ]),
+      timing.overdueSeconds,
+      timing.expectedReturnAt,
+    ];
+    }),
   ]
     .map((row) => row.map(escapeCsvValue).join(","))
     .join("\r\n");
@@ -77,10 +85,7 @@ export async function receipt(tripRequestId: string, actor: ReportActor) {
     destination: tripRequest.destination,
     purpose: tripRequest.purpose,
     requestedAt: tripRequest.requestedAt,
-    estimatedSeconds: tripRequest.estimatedSeconds,
-    departure: tripRequest.departedAt,
-    arrival: tripRequest.arrivedAt,
-    elapsedSeconds: elapsedTravelSeconds(tripRequest),
+    ...tripTiming(tripRequest),
     supervisor: tripRequest.notedBySupervisor,
     humanResources: tripRequest.notedByHr,
     approvedBy: tripRequest.approvedBy,

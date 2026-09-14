@@ -9,6 +9,9 @@ export interface Receipt {
   requestedAt: string;
   estimatedSeconds: number;
   elapsedSeconds: number;
+  flagged: boolean;
+  overdueSeconds: number;
+  expectedReturnAt?: string | null;
   departure?: string | null;
   arrival?: string | null;
   supervisor?: string | null;

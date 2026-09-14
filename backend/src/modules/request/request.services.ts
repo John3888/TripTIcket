@@ -3,7 +3,7 @@ import { prisma } from "../../config/prismaClient.js";
 import { ENV } from "../../config/env.js";
 import { AppError } from "../../middlewares/error.middleware.js";
 import { getApprovalActions, getApprovalUpdate } from "./request.approval-policy.js";
-import { elapsedTravelSeconds } from "./request.timing.js";
+import { tripTiming } from "./request.timing.js";
 
 type RequestActor = {
   employeeId: string;
@@ -203,14 +203,12 @@ export async function processTripRequestAction(
           "started",
         );
       } else {
-        const elapsedTripSeconds = elapsedTravelSeconds(tripRequest, actionTime);
+        const timing = tripTiming(tripRequest, actionTime);
         tripRequestUpdate = {
           status: "COMPLETED",
           arrivedAt: actionTime,
-          elapsedSeconds: elapsedTripSeconds,
-          flagged:
-            tripRequest.flagged ||
-            (tripRequest.estimatedSeconds > 0 && elapsedTripSeconds > tripRequest.estimatedSeconds),
+          elapsedSeconds: timing.elapsedSeconds,
+          flagged: timing.flagged,
         };
         await databaseTransaction.vehicle.update({
           where: { vehicleId: tripRequest.vehicleId },

@@ -42,6 +42,8 @@ export async function scan(body: { type: string; timeoutMs?: number; session?: s
             departedAt: true,
             arrivedAt: true,
             elapsedSeconds: true,
+            estimatedSeconds: true,
+            flagged: true,
             vehicle: { select: { plate: true } },
           },
           orderBy: { requestedAt: "desc" },

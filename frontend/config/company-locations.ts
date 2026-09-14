@@ -125,24 +125,26 @@ export const companyLocations: readonly CompanyLocation[] = [
     logoUrl: "/assets/emb-logo.png",
     isPlaceholder: false,
 },
-{
-    id: "emb-angat",
-    kind: "branch",
-    name: "EMB Angat",
-    latitude:  14.928577935221542,
-    longitude: 121.02856804996635,
-    logoUrl: "/assets/emb-logo.png",
-    isPlaceholder: false,
-},
-{
-    id: "place holder",
-    kind: "branch",
-    name: "EMB Angat",
-    latitude:  14.968577935221542,
-    longitude: 121.07856804996635,
-    logoUrl: "/assets/emb-logo.png",
-    isPlaceholder: false,
-},
+
+
+// {
+//     id: "emb-angat",
+//     kind: "branch",
+//     name: "EMB Angat",
+//     latitude:  14.928577935221542,
+//     longitude: 121.02856804996635,
+//     logoUrl: "/assets/emb-logo.png",
+//     isPlaceholder: false,
+// },
+// {
+//     id: "place holder",
+//     kind: "branch",
+//     name: "EMB Angat",
+//     latitude:  14.968577935221542,
+//     longitude: 121.07856804996635,
+//     logoUrl: "/assets/emb-logo.png",
+//     isPlaceholder: false,
+// },
 
 
 ];

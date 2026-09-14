@@ -6,7 +6,8 @@ import type { Ticket, User } from "@/types/trip-ticket";
 import { StatusPill } from "./ui/StatusPill";
 import { ScreenState } from "./ui/ScreenState";
 import { DownloadReportButton, PrintReceiptButton } from "./PrintReceiptButton";
-import { TravelTime } from "./TravelTime";
+import { OverdueBadge, TravelTime } from "./TravelTime";
+import { tripOverrun } from "@/services/travel-time";
 import { watchTripUpdates } from "@/services/realtime.service";
 export function TicketWorkspace({
   kind = "pending",
@@ -17,9 +18,16 @@ export function TicketWorkspace({
 }) {
   const [records, setRecords] = useState<Ticket[]>([]),
     [query, setQuery] = useState(""),
-    [selected, setSelected] = useState<Ticket | null>(null),
+    [overdueOnly, setOverdueOnly] = useState(false),
+    [now, setNow] = useState(() => Date.now()),
+    [selection, setSelected] = useState<Ticket | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  useEffect(() => {
+    if (kind === "pending") return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [kind]);
   useEffect(() => {
     let active = true;
     let refreshing = false;
@@ -53,11 +61,16 @@ export function TicketWorkspace({
   }, [kind]);
   const filtered = useMemo(
       () =>
-        records.filter((t) =>
-          (t.id + t.requestedBy + t.destination).toLowerCase().includes(query.toLowerCase()),
+        records.filter(
+          (t) =>
+            `${t.id} ${t.requestedBy} ${t.destination} ${t.plate}`
+              .toLowerCase()
+              .includes(query.toLowerCase()) &&
+            (!overdueOnly || tripOverrun(t, now).isOverdue),
         ),
-      [records, query],
+      [records, query, overdueOnly, now],
     ),
+    selected = filtered.find((ticket) => ticket.id === selection?.id) || filtered[0] || null,
     update = (next: Ticket[]) => {
       setRecords(next);
       setSelected(next.find((t) => t.id === selected?.id) || next[0] || null);
@@ -94,9 +107,20 @@ export function TicketWorkspace({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search ticket or employee"
+            placeholder="Ticket, employee, place or plate"
+            aria-label="Search tickets by ID, employee, destination or vehicle plate"
           />
         </label>
+        {kind !== "pending" && (
+          <div className="ticket-filters" aria-label="Filter trip duration">
+            <button aria-pressed={!overdueOnly} onClick={() => setOverdueOnly(false)}>
+              All trips <b>{records.length}</b>
+            </button>
+            <button aria-pressed={overdueOnly} onClick={() => setOverdueOnly(true)}>
+              Over estimate <b>{records.filter((t) => tripOverrun(t, now).isOverdue).length}</b>
+            </button>
+          </div>
+        )}
         <div className="list-meta">
           <b>{filtered.length} tickets</b>
           <DownloadReportButton />
@@ -118,12 +142,17 @@ export function TicketWorkspace({
                 {t.destination}
               </small>
               <time>{date(t.createdAt)}</time>
+              <OverdueBadge ticket={t} />
             </button>
           ))}
           {!filtered.length && (
             <ScreenState
               title="No matching tickets"
-              message="No requests are currently in this stage."
+              message={
+                overdueOnly
+                  ? "No trips match this search and duration filter."
+                  : "Try a different search, or check another ticket stage."
+              }
             />
           )}
         </div>

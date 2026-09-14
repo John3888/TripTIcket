@@ -15,7 +15,9 @@ export function AccountRegistry() {
     [editingEmployeeId, setEditingEmployeeId] = useState(""),
     [editRole, setEditRole] = useState("Employee"),
     [editDepartment, setEditDepartment] = useState<Department>("OPERATIONS"),
-    [scan, setScan] = useState(true),
+    [scan, setScan] = useState(false),
+    [busy, setBusy] = useState(false),
+    [loading, setLoading] = useState(true),
     [card, setCard] = useState<ScanResult | null>(null),
     [message, setMessage] = useState(""),
     [error, setError] = useState(""),
@@ -34,14 +36,20 @@ export function AccountRegistry() {
       setAccounts(allEmployees.employees);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load employee accounts.");
+    } finally {
+      setLoading(false);
     }
   };
   useEffect(() => {
+    // Employee state is populated after the asynchronous API response.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, []);
   const assign = async () => {
-    if (!card || !selected) return;
+    if (!card || !selected || busy) return;
     setError("");
+    setMessage("");
+    setBusy(true);
     try {
       const result = await accountService.assign(card.uid, selected);
       setMessage(`Card ${result.uid} assigned to ${result.employee.name}.`);
@@ -50,10 +58,13 @@ export function AccountRegistry() {
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Card could not be assigned.");
+    } finally {
+      setBusy(false);
     }
   };
   const create = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (busy) return;
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const department = String(form.get("department")) as Department;
@@ -63,6 +74,8 @@ export function AccountRegistry() {
       .join(" ");
     const role = String(form.get("role"));
     setError("");
+    setMessage("");
+    setBusy(true);
     try {
       const result = await accountService.create({
         employeeId: String(form.get("employeeId")),
@@ -81,6 +94,8 @@ export function AccountRegistry() {
       setView("assign");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Account could not be created.");
+    } finally {
+      setBusy(false);
     }
   };
   const chooseEmployeeToEdit = (employeeId: string) => {
@@ -91,8 +106,10 @@ export function AccountRegistry() {
     setEditDepartment(employee.department);
   };
   const saveEmployee = async () => {
-    if (!editingEmployeeId) return;
+    if (!editingEmployeeId || busy) return;
     setError("");
+    setMessage("");
+    setBusy(true);
     try {
       const result = await accountService.updateEmployee(editingEmployeeId, {
         role: editRole as
@@ -103,6 +120,8 @@ export function AccountRegistry() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Employee account could not be updated.");
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -112,7 +131,7 @@ export function AccountRegistry() {
           {view === "assign" ? <CreditCard /> : <UserPlus />}
           <i />
         </div>
-        <div className="registry-tabs">
+        <div className="registry-tabs" aria-label="Account management">
           <button className={view === "assign" ? "active" : ""} onClick={() => setView("assign")}>
             Assign card
           </button>
@@ -135,7 +154,7 @@ export function AccountRegistry() {
         {view === "assign" ? (
           <>
             <p className="eyebrow">CARD ASSIGNMENT</p>
-            <h2>{card ? "Choose the employee" : "Hold a card over the reader"}</h2>
+            <h2>{card ? "Your card is ready to connect" : "Connect a card to an employee"}</h2>
             {card ? (
               <>
                 <p>
@@ -144,8 +163,14 @@ export function AccountRegistry() {
                 </p>
                 <label>
                   <span>Employee account</span>
-                  <select value={selected} onChange={(e) => setSelected(e.target.value)}>
-                    <option value="">Select an employee</option>
+                  <select
+                    value={selected}
+                    onChange={(e) => setSelected(e.target.value)}
+                    disabled={loading || busy}
+                  >
+                    <option value="">
+                      {loading ? "Loading employees…" : "Select an employee"}
+                    </option>
                     {employees.map((employee) => (
                       <option key={employee.employeeId} value={employee.employeeId}>
                         {employee.name} · {employee.employeeId} · {employee.role} ·{" "}
@@ -153,24 +178,37 @@ export function AccountRegistry() {
                       </option>
                     ))}
                   </select>
+                  {!loading && !employees.length && (
+                    <small className="field-help">
+                      All employee accounts already have cards. Create an account first to connect
+                      this card.
+                    </small>
+                  )}
                 </label>
                 <div className="registry-actions">
-                  <button className="btn secondary" onClick={() => setCard(null)}>
+                  <button
+                    className="btn secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setCard(null);
+                      setScan(true);
+                    }}
+                  >
                     Scan another card
                   </button>
-                  <button className="btn primary" disabled={!selected} onClick={assign}>
-                    Assign card
+                  <button className="btn primary" disabled={!selected || busy} onClick={assign}>
+                    {busy ? "Connecting card…" : "Assign card"}
                   </button>
                 </div>
               </>
             ) : (
               <>
                 <p>
-                  Scanning starts automatically. Existing cards show their assigned employee details
-                  and cannot be overwritten.
+                  Have the employee card ready, then open the reader. We’ll check whether it is
+                  already assigned before connecting it to an account.
                 </p>
-                <button className="btn secondary" onClick={() => setScan(true)}>
-                  Scan a different card
+                <button className="btn primary" onClick={() => setScan(true)}>
+                  <CreditCard /> Open card reader
                 </button>
               </>
             )}
@@ -179,6 +217,13 @@ export function AccountRegistry() {
           <form className="settings-grid" onSubmit={create}>
             <p className="eyebrow wide">CREATE EMPLOYEE ACCOUNT</p>
             <h2 className="wide">New account</h2>
+            <div className="form-section-heading wide">
+              <span>01</span>
+              <div>
+                <h3>Employee details</h3>
+                <p>Use the employee’s official name and ID.</p>
+              </div>
+            </div>
             <label>
               <span>Employee ID</span>
               <input name="employeeId" required />
@@ -204,6 +249,10 @@ export function AccountRegistry() {
                 <option>Finance Head</option>
                 <option>Administrator</option>
               </select>
+              <small className="field-help">
+                Employees request trips. Heads review requests for their role; administrators manage
+                accounts and operations.
+              </small>
             </label>
             <label>
               <span>Department</span>
@@ -221,7 +270,19 @@ export function AccountRegistry() {
                 Required for page access and department tracking.
               </small>
             </label>
-            <button className="btn primary">Create account</button>
+            <div className="form-section-heading wide">
+              <span>02</span>
+              <div>
+                <h3>Ready to get started</h3>
+                <p>
+                  Sign-in details are generated after creation. Connect an RFID card in the next
+                  step.
+                </p>
+              </div>
+            </div>
+            <button className="btn primary" disabled={busy}>
+              {busy ? "Creating account…" : "Create employee account"}
+            </button>
           </form>
         ) : (
           <section className="settings-grid">
@@ -235,8 +296,9 @@ export function AccountRegistry() {
               <select
                 value={editingEmployeeId}
                 onChange={(event) => chooseEmployeeToEdit(event.target.value)}
+                disabled={loading || busy}
               >
-                <option value="">Select an employee</option>
+                <option value="">{loading ? "Loading employees…" : "Select an employee"}</option>
                 {accounts.map((employee) => (
                   <option key={employee.employeeId} value={employee.employeeId}>
                     {employee.name} · {employee.employeeId} · {departmentLabel(employee.department)}
@@ -269,14 +331,18 @@ export function AccountRegistry() {
                     ))}
                   </select>
                 </label>
-                <button className="btn primary" onClick={() => void saveEmployee()}>
-                  Save employee changes
+                <button className="btn primary" disabled={busy} onClick={() => void saveEmployee()}>
+                  {busy ? "Saving changes…" : "Save employee changes"}
                 </button>
               </>
             )}
           </section>
         )}
-        {message && <p role="status">{message}</p>}
+        {message && (
+          <p className="registry-feedback" role="status">
+            {message}
+          </p>
+        )}
         {error && (
           <p className="login-error" role="alert">
             {error}

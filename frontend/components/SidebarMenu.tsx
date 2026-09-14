@@ -18,7 +18,7 @@ export function SidebarMenu() {
     <aside className={`console-sidebar ${expanded ? "is-expanded" : ""}`}>
       <div className="sidebar-brand-row">
         <Link href="/pending" className="console-brand" aria-label="EMB Trip Ticket home">
-          <Image src="/assets/emb-logo-cutout.png" width={44} height={44} alt="" priority />
+          <Image src="/assets/emb-logo.png" width={58} height={58} alt="" priority />
           {expanded && (
             <span>
               <b>EMB</b>
@@ -31,7 +31,6 @@ export function SidebarMenu() {
           onClick={() => setExpanded((value) => !value)}
           aria-label={expanded ? "Collapse menu" : "Expand menu"}
         >
-          
           <ChevronLeft aria-hidden="true" />
         </button>
       </div>
@@ -43,6 +42,8 @@ export function SidebarMenu() {
               key={path}
               href={path}
               className={active ? "active" : ""}
+              aria-current={active ? "page" : undefined}
+              aria-label={label}
               title={expanded ? undefined : label}
             >
               <Icon aria-hidden="true" />
