@@ -122,7 +122,9 @@ export function TicketWorkspace({
           </div>
         )}
         <div className="list-meta">
-          <b>{filtered.length} tickets</b>
+          <b>
+            {filtered.length} {filtered.length === 1 ? "ticket" : "tickets"}
+          </b>
           <DownloadReportButton />
         </div>
         <div className="ticket-list">
@@ -258,11 +260,15 @@ function date(v?: string | null) {
   return Number.isNaN(d.valueOf()) ? v : d.toLocaleString();
 }
 function duration(t: Ticket) {
+  const estimate = tripOverrun(t).estimatedSeconds;
+  const days = Math.floor(estimate / 86400);
+  const hours = Math.floor((estimate % 86400) / 3600);
+  const minutes = Math.floor((estimate % 3600) / 60);
   return (
     [
-      [t.days, "day"],
-      [t.hours, "hour"],
-      [t.minutes, "minute"],
+      [days, "day"],
+      [hours, "hour"],
+      [minutes, "minute"],
     ]
       .filter(([v]) => Number(v) > 0)
       .map(([v, n]) => `${v} ${n}${Number(v) === 1 ? "" : "s"}`)

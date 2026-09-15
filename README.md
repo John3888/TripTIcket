@@ -1,4 +1,4 @@
-# EMB Trip Ticket Kiosk
+<!-- # EMB Trip Ticket Kiosk
 
 Clean-stack migration of the EMB Trip Ticket System. The application keeps the Trip Ticket domain, workflows, visual identity, route behavior, and compatible data identifiers while using the SERVIAMUS-style TypeScript architecture.
 
@@ -48,4 +48,4 @@ The existing backend accepts `POST /api/gps/position`. Send `plate` for an ongoi
 
 Use descriptive `camelCase` names for variables, functions, parameters, and object instances. Names should communicate the value's role, not just its type: use `tripRequest`, `databaseTransaction`, and `reportResponse` rather than `request`, `tx`, and `r`.
 
-Keep short names only for universally understood values in small scopes, such as a React event handler's `event`. Use `PascalCase` for types, interfaces, classes, and React components. Preserve database field names and API request/response keys when they form part of the existing contract; improve the local variable that represents them instead.
+Keep short names only for universally understood values in small scopes, such as a React event handler's `event`. Use `PascalCase` for types, interfaces, classes, and React components. Preserve database field names and API request/response keys when they form part of the existing contract; improve the local variable that represents them instead. -->

@@ -228,7 +228,7 @@ export function ScanModal({
         <div className="scan-brand">
           <ShieldCheck aria-hidden="true" />
           <span>
-            EMB TRIP TICKET<span>Secure identity station</span>
+            EMB TRIP TICKET<small>Secure identity station</small>
           </span>
         </div>
         <ol className="scan-progress" aria-label="Card reading progress">

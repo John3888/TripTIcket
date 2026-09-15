@@ -1,12 +1,17 @@
 "use client";
 import { CreditCard, ShieldCheck, UserPlus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { accountService, type ExistingCardAssignment } from "@/services/account.service";
 import { ScanModal } from "./ScanModal";
 import type { Department, ScanResult } from "@/types/trip-ticket";
 import { DEPARTMENTS, departmentLabel } from "@/app/(admin)/config/menu.config";
 
 type Employee = ExistingCardAssignment;
+const REGISTRY_TABS = [
+  { value: "assign", label: "Assign card" },
+  { value: "create", label: "Create account" },
+  { value: "manage", label: "Edit employee" },
+] as const;
 export function AccountRegistry() {
   const [view, setView] = useState<"assign" | "create" | "manage">("assign"),
     [employees, setEmployees] = useState<Employee[]>([]),
@@ -124,24 +129,72 @@ export function AccountRegistry() {
       setBusy(false);
     }
   };
+  const navigateTabs = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next =
+      event.key === "ArrowRight"
+        ? (index + 1) % REGISTRY_TABS.length
+        : event.key === "ArrowLeft"
+          ? (index + REGISTRY_TABS.length - 1) % REGISTRY_TABS.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? REGISTRY_TABS.length - 1
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    setView(REGISTRY_TABS[next].value);
+    document.getElementById(`registry-tab-${REGISTRY_TABS[next].value}`)?.focus();
+  };
   return (
     <section className="registry-panel">
-      <div className="registry-intro">
-        <div className="registry-art">
-          {view === "assign" ? <CreditCard /> : <UserPlus />}
-          <i />
-        </div>
-        <div className="registry-tabs" aria-label="Account management">
-          <button className={view === "assign" ? "active" : ""} onClick={() => setView("assign")}>
-            Assign card
+      <div className="registry-tabs" role="tablist" aria-label="Account management">
+        {REGISTRY_TABS.map((tab, index) => (
+          <button
+            key={tab.value}
+            id={`registry-tab-${tab.value}`}
+            type="button"
+            role="tab"
+            aria-selected={view === tab.value}
+            aria-controls="registry-content"
+            tabIndex={view === tab.value ? 0 : -1}
+            className={view === tab.value ? "active" : ""}
+            onClick={() => setView(tab.value)}
+            onKeyDown={(event) => navigateTabs(event, index)}
+          >
+            {tab.label}
           </button>
-          <button className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
-            Create account
-          </button>
-          <button className={view === "manage" ? "active" : ""} onClick={() => setView("manage")}>
-            Edit employee
-          </button>
-        </div>
+        ))}
+      </div>
+      <div
+        className="registry-intro"
+        id="registry-content"
+        role="tabpanel"
+        aria-labelledby={`registry-tab-${view}`}
+        tabIndex={0}
+      >
+        <header className="registry-heading">
+          <div className="registry-art" aria-hidden="true">
+            {view === "assign" ? <CreditCard /> : <UserPlus />}
+          </div>
+          <div>
+            <p className="eyebrow">
+              {view === "assign"
+                ? "CARD ASSIGNMENT"
+                : view === "create"
+                  ? "CREATE EMPLOYEE ACCOUNT"
+                  : "EMPLOYEE MANAGEMENT"}
+            </p>
+            <h2>
+              {view === "assign"
+                ? card
+                  ? "Your card is ready to connect"
+                  : "Connect an employee card"
+                : view === "create"
+                  ? "New employee account"
+                  : "Edit employee access"}
+            </h2>
+          </div>
+        </header>
         {createdAccount && (
           <section className="registry-created-summary" aria-live="polite">
             <span>Account created</span>
@@ -153,8 +206,6 @@ export function AccountRegistry() {
         )}
         {view === "assign" ? (
           <>
-            <p className="eyebrow">CARD ASSIGNMENT</p>
-            <h2>{card ? "Your card is ready to connect" : "Connect a card to an employee"}</h2>
             {card ? (
               <>
                 <p>
@@ -215,8 +266,6 @@ export function AccountRegistry() {
           </>
         ) : view === "create" ? (
           <form className="settings-grid" onSubmit={create}>
-            <p className="eyebrow wide">CREATE EMPLOYEE ACCOUNT</p>
-            <h2 className="wide">New account</h2>
             <div className="form-section-heading wide">
               <span>01</span>
               <div>
@@ -286,9 +335,7 @@ export function AccountRegistry() {
           </form>
         ) : (
           <section className="settings-grid">
-            <p className="eyebrow wide">EMPLOYEE MANAGEMENT</p>
-            <h2 className="wide">Edit employee access</h2>
-            <p className="wide">
+            <p className="registry-description wide">
               Update an employee&apos;s role or department. Their next sign-in uses the new access.
             </p>
             <label className="wide">
