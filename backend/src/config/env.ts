@@ -9,6 +9,7 @@ const schema = z.object({
   JWT_EXPIRES_IN: z.string().default("1d"),
   EMB_GPS_DEVICE_KEY: z.string().default(""),
   EMB_ESP32_TIMEOUT_MS: z.coerce.number().int().positive().default(65000),
+  EMB_ESP32_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   EMB_ESP32_API_KEY: z.string().default(""),
 });
 export const ENV = schema.parse(process.env);

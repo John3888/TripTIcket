@@ -1,4 +1,5 @@
 import { AppError } from "../../middlewares/error.middleware.js";
+import { ENV } from "../../config/env.js";
 import { normalizeUid } from "./rfid.types.js";
 
 type DevicePayload = {
@@ -84,7 +85,8 @@ export async function cancel(body: { session?: string } = {}) {
 }
 
 export async function status() {
-  const deviceRecentlySeen = lastSeenAt > 0 && Date.now() - lastSeenAt < 120000;
+  const deviceRecentlySeen =
+    lastSeenAt > 0 && Date.now() - lastSeenAt < ENV.EMB_ESP32_HEARTBEAT_TIMEOUT_MS;
   return {
     ok: true,
     connected: deviceRecentlySeen,

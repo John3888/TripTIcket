@@ -715,8 +715,8 @@
   display: grid;
   place-items: center;
   color:#1c5020;
-  background: black;
-  border: 3px solid white;
+  background: white;
+  border: 2px dashed black;
   border-radius: 50%;
   box-shadow: 0 2px 8px rgba(20, 62, 101, 0.3);
 }

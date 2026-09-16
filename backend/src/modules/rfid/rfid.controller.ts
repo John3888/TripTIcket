@@ -16,7 +16,10 @@ export const scan: RequestHandler = async (req, res) => {
   res.json(result);
 };
 export const cancel: RequestHandler = async (req, res) => res.json(await service.cancel(req.body));
-export const status: RequestHandler = async (_req, res) => res.json(await service.status());
+export const status: RequestHandler = async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await service.status());
+};
 export const receive: RequestHandler = async (req, res) =>
   res.json({
     success: true,

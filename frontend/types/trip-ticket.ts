@@ -75,7 +75,7 @@ export interface DeviceStatus {
   message: string;
   device?: string;
   capabilities?: { read: boolean; write: boolean };
-  lastSeenAt?: string;
+  lastSeenAt?: string | null;
 }
 export interface ScanResult {
   ok: boolean;

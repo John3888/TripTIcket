@@ -113,16 +113,11 @@ export function ScanModal({
     scanStarted.current = false;
     const currentSession = `${registration ? "registry" : type}-${Date.now()}-${++sessionSequence.current}`;
     session.current = currentSession;
-    rfidService
-      .status()
-      .then((result) => {
-        if (session.current === currentSession) setStatus(result);
-      })
-      .catch(() => {
-        if (session.current === currentSession)
-          setStatus({ connected: false, message: "Card reader unavailable" });
-      });
+    const stopWatchingStatus = rfidService.watchStatus((result) => {
+      if (session.current === currentSession) setStatus(result);
+    });
     return () => {
+      stopWatchingStatus();
       if (session.current === currentSession) session.current = "";
       rfidService.cancel(currentSession).catch(() => undefined);
     };
