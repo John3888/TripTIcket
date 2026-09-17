@@ -256,8 +256,8 @@ export function RequesterKiosk({ view = "home" }: { view?: "home" | "new" }) {
     <KioskFrame>
       <main className="kiosk-home">
         <p className="eyebrow">EMPLOYEE SELF-SERVICE KIOSK</p>
-        <h1>Choose your next stop.</h1>
-        <p>Tap your employee ID once to begin a trip request or record a vehicle movement.</p>
+        <h1>Choose your next action</h1>
+        {/* <p>Tap your employee ID once to begin a trip request or record a vehicle movement.</p> */}
         {error && <p role="alert">{error}</p>}
         <div className="kiosk-actions">
           <button className="action-card primary-card" onClick={() => setScan("ticket")}>
@@ -266,7 +266,7 @@ export function RequesterKiosk({ view = "home" }: { view?: "home" | "new" }) {
             </span>
             <b>Make a Request</b>
             <small>Scan ID and create a new trip ticket</small>
-            <em>SCAN TO BEGIN →</em>
+            <em>CLICK TO BEGIN →</em>
           </button>
           <button className="action-card" onClick={() => setScan("movement")}>
             <span>
@@ -274,7 +274,7 @@ export function RequesterKiosk({ view = "home" }: { view?: "home" | "new" }) {
             </span>
             <b>Depart / Arrive</b>
             <small>Record the start or completion of your trip</small>
-            <em>SCAN ID CARD →</em>
+            <em>CLICK TO BEGIN →</em>
           </button>
           <Link className="action-card" href="/request/pending">
             <span>
@@ -317,7 +317,7 @@ function KioskFrame({ children }: { children: React.ReactNode }) {
           <Image src="/assets/emb-logo.png" width={62} height={62} alt="EMB logo" />
           <span>
             <b>EMB CAPITAL LENDING CORPORATION</b>
-            <small>TRIP TICKET MANAGEMENT SYSTEM</small>
+            <small>TRIP TICKET REQUEST & MANAGEMENT SYSTEM</small>
           </span>
         </Link>
         <div className="system-state">RFID-ENABLED STATION</div>

@@ -373,7 +373,7 @@ export function ScanModal({
             </div>
             {!status.connected && (
               <p className="reader-help">
-                If your card is not detected, check the reader’s power and connection, then retry.
+                If your card is not detected, contact your system administrator.
               </p>
             )}
             <div className="capability-note">
