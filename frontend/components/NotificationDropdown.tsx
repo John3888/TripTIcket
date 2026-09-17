@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { CheckCheck, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { notificationService } from "@/services/notification.service";
 import { ticketService } from "@/services/ticket.service";
 import type { StoreNotification, User } from "@/types/trip-ticket";
@@ -23,6 +23,7 @@ export function NotificationDropdown({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const relevant = (items: StoreNotification[]) =>
     items.filter(
@@ -36,14 +37,19 @@ export function NotificationDropdown({
       const items = relevant(store.notifications);
       setNotifications(items);
       onUnreadChange(items.filter((item) => !item.readBy.includes(user.userId)).length);
+      return true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Notifications could not be loaded.");
+      return false;
     } finally {
       setLoading(false);
     }
   };
   useEffect(() => {
     if (open) void refresh();
+  }, [open]);
+  useEffect(() => {
+    if (open) closeButtonRef.current?.focus();
   }, [open]);
 
   const apply = async (operation: () => Promise<{ notifications: StoreNotification[] }>) => {
@@ -55,22 +61,31 @@ export function NotificationDropdown({
       setNotifications(items);
       onUnreadChange(items.filter((item) => !item.readBy.includes(user.userId)).length);
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Notification action could not be completed.",
-      );
+      // A notification can disappear after this view was loaded. Reconcile
+      // with the store so a stale row never remains as a broken action.
+      const refreshed = await refresh();
+      if (!refreshed)
+        setError(
+          reason instanceof Error ? reason.message : "Notification action could not be completed.",
+        );
     } finally {
       setBusy(false);
     }
   };
   if (!open) return null;
   return (
-    <section className="notification-menu" aria-label="Notifications">
+    <section
+      className="notification-menu"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="notification-menu-title"
+    >
       <header>
         <div>
           <p className="eyebrow">INBOX</p>
-          <h2>Notifications</h2>
+          <h2 id="notification-menu-title">Notifications</h2>
         </div>
-        <button onClick={onClose} aria-label="Close notifications">
+        <button ref={closeButtonRef} onClick={onClose} aria-label="Close notifications">
           <X />
         </button>
       </header>
@@ -81,12 +96,11 @@ export function NotificationDropdown({
         >
           <CheckCheck /> Mark all read
         </button>
-        <button
-          disabled={busy || !notifications.length}
-          onClick={() => apply(() => notificationService.clear())}
-        >
-          Clear closed
-        </button>
+        {notifications.length > 0 && (
+          <button disabled={busy} onClick={() => apply(() => notificationService.clear())}>
+            Dismiss all
+          </button>
+        )}
       </div>
       <div className="notification-list">
         {error && (

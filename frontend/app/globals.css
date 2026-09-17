@@ -565,6 +565,107 @@
 .notification-error button:disabled {
   opacity: 0.55;
 }
+
+/* The desktop control is a compact popover. On handsets it becomes a
+   viewport-aware utility sheet, leaving both the header and bottom navigation
+   unobstructed. */
+@media (max-width: 700px) {
+  .header-popover:has(.notification-menu) {
+    position: static;
+  }
+  .notification-menu {
+    position: fixed;
+    z-index: 35;
+    top: calc(62px + env(safe-area-inset-top) + 10px);
+    right: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom) + 12px);
+    left: 12px;
+    width: auto;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 14px;
+    box-shadow: 0 18px 42px rgba(12, 43, 31, 0.18);
+    animation: notification-sheet-in 0.18s ease-out;
+  }
+  .notification-menu > header {
+    min-height: 70px;
+    padding: 14px 16px 12px;
+  }
+  .notification-menu > header .eyebrow {
+    margin-bottom: 3px;
+    font-size: 9px;
+  }
+  .notification-menu header button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+  }
+  .notification-menu header button:hover,
+  .notification-menu header button:focus-visible {
+    background: #edf4ef;
+    outline: none;
+  }
+  .notification-actions {
+    min-height: 47px;
+    padding: 8px 14px;
+    align-items: center;
+  }
+  .notification-actions button {
+    min-height: 30px;
+    padding: 0 4px;
+  }
+  .notification-list {
+    min-height: 0;
+    max-height: none;
+    flex: 1 1 auto;
+    overscroll-behavior: contain;
+  }
+  .notification-list article {
+    padding: 14px 16px 13px;
+  }
+  .notification-copy {
+    min-height: 55px;
+    gap: 10px;
+  }
+  .notification-copy b {
+    font-size: 13px;
+  }
+  .notification-copy small {
+    font-size: 11px;
+  }
+  .notification-bottom {
+    min-height: 32px;
+    margin: 7px 0 0 17px;
+  }
+  .notification-bottom a,
+  .notification-bottom button {
+    min-height: 30px;
+  }
+  .notification-bottom a {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 3px;
+    font-size: 11px;
+  }
+  .notification-bottom button {
+    width: 32px;
+    padding: 0;
+  }
+}
+@keyframes notification-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .operations-login .login-brand {
   background: linear-gradient(145deg, #123c34, #0a2522);
 }
@@ -758,9 +859,6 @@
   }
   .page-heading h1 {
     font-size: 28px;
-  }
-  .notification-menu {
-    right: -52px;
   }
   .requester-records {
     width: min(92vw, 1050px);
@@ -3725,15 +3823,38 @@ textarea {
 @media (max-width: 700px) {
   .workspace {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
   .ticket-rail {
-    max-height: 400px;
+    max-height: none;
     overflow: auto;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 0;
   }
   .ticket-detail {
     padding: 22px 17px;
+  }
+  .workspace:not(.mobile-detail-open) .ticket-detail {
+    display: none;
+  }
+  .workspace.mobile-detail-open .ticket-rail {
+    display: none;
+  }
+  .mobile-detail-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: -4px 0 18px;
+    padding: 7px 0;
+    color: var(--green);
+    background: transparent;
+    border: 0;
+    font-size: 12px;
+    font-weight: 750;
+  }
+  .mobile-detail-back svg {
+    width: 16px;
+    height: 16px;
   }
   .registry-intro {
     padding: 22px 20px;
@@ -3815,6 +3936,7 @@ textarea {
     padding: 23px 12px 92px;
   }
 }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,
@@ -4154,7 +4276,14 @@ textarea {
   gap: 9px;
   font-size: 13px;
 }
+
+.mobile-detail-back {
+  display: none;
+}
 @media (max-width: 700px) {
+  .mobile-detail-back {
+    display: inline-flex;
+  }
   .settings-head {
     flex-wrap: wrap;
   }

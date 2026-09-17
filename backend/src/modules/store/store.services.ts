@@ -2,6 +2,7 @@ import { prisma } from "../../config/prismaClient.js";
 import type { StaffPage } from "../../config/access-policy.js";
 import { getApprovalActions } from "../request/request.approval-policy.js";
 import { tripTiming } from "../request/request.timing.js";
+import { canViewNotification } from "../notification/notification.policy.js";
 
 type StoreActor = {
   userId: string;
@@ -64,11 +65,9 @@ export async function publicStore({ actor, page }: StoreOptions) {
   const visibleRequests = departmentScoped
     ? requests.filter((request) => request.employee.department === actor.department)
     : requests;
-  const visibleNotifications = departmentScoped
-    ? notifications.filter(
-        (notification) => notification.tripRequest?.employee.department === actor.department,
-      )
-    : notifications;
+  const visibleNotifications = notifications.filter((notification) =>
+    canViewNotification(actor, notification),
+  );
   const requestRows = visibleRequests.map((r) => {
     // Prisma omits the relation for non-GPS pages, so it must be treated as
     // an empty trail rather than assuming it is always present.

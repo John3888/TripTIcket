@@ -1,31 +1,9 @@
-import { Prisma, type Department } from "@prisma/client";
 import { prisma } from "../../config/prismaClient.js";
 import { AppError } from "../../middlewares/error.middleware.js";
+import { notificationVisibilityWhere, type NotificationActor } from "./notification.policy.js";
 
 const receiptStatus = (action: string) =>
   action === "close" ? "CLOSED" : action === "read" ? "READ" : null;
-
-type NotificationActor = { userId: string; role: string; department: string };
-
-// System-wide notices do not belong to an employee department. They may only
-// be acknowledged by central operations roles; trip-linked notices are always
-// limited to the recipient's department.
-const SYSTEM_NOTIFICATION_ROLES = ["HR Head", "Finance Head", "Administrator"];
-
-const notificationDepartmentScope = (actor: NotificationActor): Prisma.NotificationWhereInput => ({
-  OR: [
-    {
-      tripRequest: {
-        is: {
-          employee: {
-            is: { department: actor.department as Department },
-          },
-        },
-      },
-    },
-    ...(SYSTEM_NOTIFICATION_ROLES.includes(actor.role) ? [{ tripRequestId: null }] : []),
-  ],
-});
 
 export async function update(id: string, action: string, actor: NotificationActor) {
   const status = receiptStatus(action);
@@ -33,8 +11,7 @@ export async function update(id: string, action: string, actor: NotificationActo
   const item = await prisma.notification.findFirst({
     where: {
       id,
-      recipients: { some: { role: actor.role } },
-      ...notificationDepartmentScope(actor),
+      ...notificationVisibilityWhere(actor),
     },
   });
   if (!item) throw new AppError(404, "Notification was not found.");
@@ -50,8 +27,7 @@ export async function update(id: string, action: string, actor: NotificationActo
 export async function updateAll(action: string, actor: NotificationActor) {
   const rows = await prisma.notification.findMany({
     where: {
-      recipients: { some: { role: actor.role } },
-      ...notificationDepartmentScope(actor),
+      ...notificationVisibilityWhere(actor),
     },
     select: { id: true },
   });

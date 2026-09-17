@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, MapPin, Search, Trash2 } from "lucide-react";
 import { ticketService } from "@/services/ticket.service";
 import type { Ticket, User } from "@/types/trip-ticket";
 import { StatusPill } from "./ui/StatusPill";
@@ -21,6 +21,7 @@ export function TicketWorkspace({
     [overdueOnly, setOverdueOnly] = useState(false),
     [now, setNow] = useState(() => Date.now()),
     [selection, setSelected] = useState<Ticket | null>(null),
+    [mobileDetailOpen, setMobileDetailOpen] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   useEffect(() => {
@@ -100,7 +101,7 @@ export function TicketWorkspace({
       />
     );
   return (
-    <section className="workspace">
+    <section className={`workspace ${mobileDetailOpen ? "mobile-detail-open" : ""}`}>
       <div className="ticket-rail">
         <label className="search">
           <Search />
@@ -132,7 +133,10 @@ export function TicketWorkspace({
             <button
               key={t.id}
               className={selected?.id === t.id ? "selected" : ""}
-              onClick={() => setSelected(t)}
+              onClick={() => {
+                setSelected(t);
+                setMobileDetailOpen(true);
+              }}
             >
               <span>
                 <b>{t.id}</b>
@@ -161,6 +165,9 @@ export function TicketWorkspace({
       </div>
       {selected ? (
         <article className="ticket-detail">
+          <button className="mobile-detail-back" onClick={() => setMobileDetailOpen(false)}>
+            <ArrowLeft aria-hidden="true" /> All trips
+          </button>
           <div className="detail-head">
             <div>
               <p className="eyebrow">TRIP TICKET</p>
