@@ -38,9 +38,7 @@ export function LoginPage() {
         <Image src="/assets/emb-logo.png" width={112} height={112} alt="EMB logo" priority />
         <p className="eyebrow">EMB CAPITAL LENDING CORPORATION</p>
         <h1>
-          Trip operations,
-          <br />
-          in clear view.
+          Trip Ticket Request & Management System
         </h1>
         <p>
           One controlled workspace for reviewing travel, tracking active trips, and keeping every
@@ -58,7 +56,7 @@ export function LoginPage() {
         <form onSubmit={submit}>
           <p className="eyebrow">STAFF SIGN IN</p>
           <h2>Welcome back</h2>
-          <p>Enter your staff account details to continue.</p>
+          <p>Login into your account.</p>
           <label>
             <span>Email address</span>
             <div className="input-icon">
@@ -91,7 +89,7 @@ export function LoginPage() {
             </p>
           )}
           <button disabled={loading} className="btn primary wide">
-            {loading ? "Signing you in…" : "Continue to operations"}
+            {loading ? "Signing you in…" : "Login"}
           </button>
           <p className="requester-link">
             Need to request a trip? <Link href="/request">Open the employee kiosk</Link>
