@@ -98,7 +98,7 @@ export function NotificationDropdown({
         </button>
         {notifications.length > 0 && (
           <button disabled={busy} onClick={() => apply(() => notificationService.clear())}>
-            Dismiss all
+            Delete all Notifications
           </button>
         )}
       </div>
