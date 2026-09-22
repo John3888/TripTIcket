@@ -2,7 +2,7 @@ import "dotenv/config";
 import { z } from "zod";
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
-  PORT: z.coerce.number().int().positive().default(5001),
+  PORT: z.coerce.number().int().positive(),
   FRONTEND_URL: z.string().url().default("https://tripticket.jgccorporatesolutions.com"),
   FRONTEND_LAN_URL: z.string().url().optional().or(z.literal("")),
   JWT_SECRET: z.string().min(24),
