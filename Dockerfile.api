@@ -1,6 +1,17 @@
-FROM node:24-bookworm-slim AS dependencies
+# syntax=docker/dockerfile:1.7
+
+FROM node:24-bookworm-slim AS base
 
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        openssl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+
+FROM base AS dependencies
 
 COPY backend/package.json backend/package-lock.json ./
 
@@ -14,11 +25,8 @@ WORKDIR /app
 
 COPY backend ./
 
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_SOCKET_URL
-
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+RUN DATABASE_URL="mysql://unused:unused@localhost:3306/unused" \
+    npx prisma generate
 
 RUN npm run build
 
@@ -26,31 +34,29 @@ RUN npm run build
 FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production
-ENV PORT=8501
-ENV HOSTNAME=0.0.0.0
+ENV PORT=8500
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        openssl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 1001 nodejs \
-    && useradd --system --uid 1001 --gid nodejs nextjs
+    && useradd --system --uid 1001 --gid nodejs api \
+    && mkdir -p /app/logs \
+    && chown -R api:nodejs /app
 
-COPY --from=builder \
-    --chown=nextjs:nodejs \
-    /app/.next/standalone \
-    ./
+COPY --from=builder --chown=api:nodejs /app/dist ./dist
+COPY --from=builder --chown=api:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=api:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=api:nodejs /app/package-lock.json ./package-lock.json
+COPY --from=builder --chown=api:nodejs /app/node_modules ./node_modules
 
-COPY --from=builder \
-    --chown=nextjs:nodejs \
-    /app/.next/static \
-    ./.next/static
+USER api
 
-COPY --from=builder \
-    --chown=nextjs:nodejs \
-    /app/public \
-    ./public
+EXPOSE 8500
 
-USER nextjs
-
-EXPOSE 8501
-
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
