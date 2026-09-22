@@ -113,17 +113,6 @@ for (const request of source.requests) {
       elapsedSeconds: Number(request.elapsedSeconds) || 0,
       warned15: Boolean(request.warned15),
       flagged: Boolean(request.flagged),
-      gpsPoints: {
-        create: (request.gpsTrail || []).map((point: any) => ({
-          deviceId: request.gps?.deviceId,
-          latitude: point.latitude,
-          longitude: point.longitude,
-          speedKph: point.speedKph,
-          heading: point.heading,
-          accuracyMeters: point.accuracyMeters,
-          recordedAt: parseDate(point.recordedAt),
-        })),
-      },
     },
   });
 }

@@ -5,6 +5,7 @@ import {
   Settings,
   Truck,
   Users,
+  Radio,
   type LucideIcon,
 } from "lucide-react";
 import type { Department, Role, User } from "@/types/trip-ticket";
@@ -87,6 +88,10 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     icon: Settings,
     roles: STAFF_ROLES,
     departments: ALL_DEPARTMENTS,
+  },
+  {
+    label: "Devices", path: "/devices", description: "GPS trackers and vehicle assignments",
+    icon: Radio, roles: ["Administrator"], departments: ALL_DEPARTMENTS,
   },
 ];
 

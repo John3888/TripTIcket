@@ -82,6 +82,7 @@ model User {
 }
 
 model Vehicle {
+  trackingDevice TrackingDevice?
   vehicleId   String        @id @map("vehicle_id") @db.VarChar(24)
   plate       String        @unique @db.VarChar(32)
   status      VehicleStatus @default(STANDBY)
@@ -103,6 +104,7 @@ model WorkflowStep {
 }
 
 model TripRequest {
+  telemetry           DeviceTelemetry[]
   id                  String         @id @db.VarChar(12)
   status              TripStatus     @default(PENDING)
   employeeId          String         @map("employee_id") @db.VarChar(24)
@@ -137,6 +139,8 @@ model TripRequest {
 }
 
 model GpsPoint {
+  filterVersion  Int         @default(0) @map("filter_version")
+  filterVariance Float?      @map("filter_variance")
   id             BigInt      @id @default(autoincrement())
   tripRequestId  String      @map("trip_request_id") @db.VarChar(12)
   deviceId       String?     @map("device_id") @db.VarChar(80)
@@ -150,6 +154,44 @@ model GpsPoint {
 
   @@index([tripRequestId, recordedAt])
   @@map("gps_points")
+}
+
+// Stable device identity and current installation. One tracker per vehicle.
+model TrackingDevice {
+  deviceId String @id @map("device_id") @db.VarChar(80)
+  vehicleId String @unique @map("vehicle_id") @db.VarChar(24)
+  enabled Boolean @default(true)
+  lastSeenAt DateTime? @map("last_seen_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  vehicle Vehicle @relation(fields: [vehicleId], references: [vehicleId], onDelete: Restrict)
+  telemetry DeviceTelemetry[]
+  @@map("tracking_devices")
+}
+
+// Immutable received measurements, including rejected/no-fix reports.
+model DeviceTelemetry {
+  id BigInt @id @default(autoincrement())
+  deviceId String @map("device_id") @db.VarChar(80)
+  tripRequestId String? @map("trip_request_id") @db.VarChar(12)
+  receivedAt DateTime @default(now()) @map("received_at")
+  recordedAt DateTime @map("recorded_at")
+  hasFix Boolean @map("has_fix")
+  latitude Float?
+  longitude Float?
+  speedKph Float? @map("speed_kph")
+  hdop Float?
+  satellites Int?
+  altitudeM Float? @map("altitude_m")
+  uptimeMs BigInt? @map("uptime_ms")
+  // Versioned SI-unit payload; reserved for future calibrated IMU processing.
+  sensorVersion Int @default(1) @map("sensor_version")
+  acceleration Json?
+  disposition String @db.VarChar(40)
+  device TrackingDevice @relation(fields: [deviceId], references: [deviceId], onDelete: Restrict)
+  tripRequest TripRequest? @relation(fields: [tripRequestId], references: [id], onDelete: SetNull)
+  @@index([deviceId, receivedAt])
+  @@index([tripRequestId, recordedAt])
+  @@map("device_telemetry")
 }
 
 model Notification {

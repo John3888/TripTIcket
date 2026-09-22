@@ -30,13 +30,21 @@ export function RequesterKiosk({ view = "home" }: { view?: "home" | "new" }) {
     [employee, setEmployee] = useState<Employee | null>(null),
     [rfidToken, setRfidToken] = useState(""),
     [vehicles, setVehicles] = useState<Vehicle[]>([]),
+    [plate, setPlate] = useState(""),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
   useEffect(() => {
-    ticketService
-      .kioskStore()
-      .then((s) => setVehicles(s.vehicles.filter((v) => v.status.toLowerCase() === "standby")))
-      .catch((e) => setError(e instanceof Error ? e.message : "Vehicles are unavailable."));
+    let active = true;
+    const refresh = () => ticketService.kioskStore().then((s) => {
+      if (!active) return;
+      const available = s.vehicles.filter((v) => v.status.toLowerCase() === "standby");
+      setVehicles(available);
+      setPlate((current) => available.some((v) => v.plate === current) ? current : "");
+    }).catch((e) => { if (active) setError(e instanceof Error ? e.message : "Vehicles are unavailable."); });
+    void refresh();
+    const interval = window.setInterval(refresh, 10000);
+    window.addEventListener("focus", refresh);
+    return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); };
   }, []);
   useEffect(() => {
     if (view !== "new") return;
@@ -158,7 +166,7 @@ export function RequesterKiosk({ view = "home" }: { view?: "home" | "new" }) {
                 <span>Standby vehicle</span>
                 <div className="input-icon">
                   <CarFront />
-                  <select name="plate" required defaultValue="">
+                  <select name="plate" required value={plate} onChange={(event) => setPlate(event.target.value)}>
                     <option value="" disabled>
                       Select an available vehicle
                     </option>
@@ -170,6 +178,7 @@ export function RequesterKiosk({ view = "home" }: { view?: "home" | "new" }) {
                     ))}
                   </select>
                 </div>
+                <small>Only standby vehicles can be requested. Availability is checked again on submission.</small>
               </label>
               <label className="wide">
                 <span>Destination</span>

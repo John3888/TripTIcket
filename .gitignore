@@ -3,4 +3,11 @@ node_modules/
 dist/
 .env
 *.log
+gps_firmware/
+RFID/
+osrm/
+.prettierignore
+.prettierrc.json
 backend/prisma/legacy-seed.local.json
+README.md
+RFID-STATUS.md

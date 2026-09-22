@@ -1,5 +1,5 @@
 export type StaffPage =
-  "pending" | "outgoing" | "history" | "live-gps" | "settings" | "account-registry";
+  "pending" | "outgoing" | "history" | "live-gps" | "settings" | "account-registry" | "devices";
 
 type AuthActor = { role: string; department: string };
 
@@ -18,6 +18,7 @@ export const STAFF_PAGE_POLICIES: Record<StaffPage, { roles: string[]; departmen
   },
   settings: { roles: STAFF_ROLES, departments: ALL_DEPARTMENTS },
   "account-registry": { roles: ["Administrator"], departments: ALL_DEPARTMENTS },
+  devices: { roles: ["Administrator"], departments: ALL_DEPARTMENTS },
 };
 
 export const isStaffRole = (role: string) => STAFF_ROLES.includes(role);

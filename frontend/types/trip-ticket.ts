@@ -59,6 +59,21 @@ export interface Ticket {
   decisionBy?: string | null;
   gps?: GpsPoint | null;
   gpsTrail?: GpsPoint[];
+  track?: TripTrack;
+}
+export interface TripTrack {
+  ticketId: string;
+  segments: { coordinates: number[][]; distanceMeters: number; estimated?: boolean; kind?: "observed" | "gap" }[];
+  device?: { enabled: boolean; lastSeenAt: string | null } | null;
+  departedAt?: string | null;
+  arrivedAt?: string | null;
+  estimatedDistanceMeters?: number;
+  distanceMeters: number;
+  incomplete: boolean;
+  matching: "matched" | "unmatched";
+  position: GpsPoint | null;
+  lastRecordedAt: string | null;
+  sampleCount: number;
 }
 export interface GpsPoint {
   id: string;

@@ -24,8 +24,10 @@ export function emitGpsPosition(position: {
     accuracyMeters: number | null;
     recordedAt: string;
   };
-}) {
-  io?.to("live-gps").emit("gps:position", position);
+}, department?: string) {
+  const recipients = io?.to("live-gps");
+  if (department) recipients?.to(`live-gps:${department}`).emit("gps:position", position);
+  else recipients?.emit("gps:position", position);
 }
 
 export function emitNotification(notification: {

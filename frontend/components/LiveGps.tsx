@@ -21,7 +21,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { companyLocations, type CompanyLocation } from "@/config/company-locations";
 import { ticketService } from "@/services/ticket.service";
 import { createRealtimeClient } from "@/services/realtime.service";
-import type { GpsPoint, Ticket } from "@/types/trip-ticket";
+import type { GpsPoint, Ticket, TripTrack } from "@/types/trip-ticket";
+import { api } from "@/services/api";
 import { CompanyGpsMap, type CompanyGpsMapHandle } from "./maps/CompanyGpsMap";
 import { OverdueBadge } from "./TravelTime";
 import {
@@ -71,13 +72,14 @@ function LocationLogo({ location }: { location: CompanyLocation }) {
 export function LiveGps() {
   const [trips, setTrips] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clock, setClock] = useState(0);
   const [error, setError] = useState("");
   const [connection, setConnection] = useState<"connecting" | "connected" | "reconnecting">(
     "connecting",
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [panelOverride, setPanelOverride] = useState<boolean | null>(null);
-  const [activePanel, setActivePanel] = useState<"locations" | "fleet">("locations");
+  const [activePanel, setActivePanel] = useState<"locations" | "fleet">("fleet");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(false);
   const compactLayout = useSyncExternalStore(
@@ -160,6 +162,7 @@ export function LiveGps() {
 
   useEffect(() => {
     let disposed = false;
+    const clockInterval = window.setInterval(() => setClock(Date.now()), 5000);
     let fetching = false;
     let refreshQueued = false;
     let knownTripIds = new Set<string>();
@@ -174,22 +177,35 @@ export function LiveGps() {
       try {
         const store = await ticketService.store("live-gps");
         if (disposed) return;
-        const monitored = store.outgoing.filter(
+        const monitored = [...store.outgoing, ...store.history.filter((ticket) => ticket.status === "completed" && ticket.gps)].filter(
           (ticket) => ticket.status === "ongoing" || ticket.gps,
         );
+        // Publish current telemetry immediately; road matching must not freeze the fleet.
+        setTrips((current) => monitored.map((trip) => {
+          const previous = current.find((item) => item.id === trip.id);
+          const gps = latestGpsPoint(trip.gps, receivedGps.get(trip.id));
+          const matched = previous?.track?.position;
+          return { ...trip, gps: previous?.track?.matching === "matched" ? previous.gps : latestGpsPoint(gps, matched ?? undefined), track: previous?.track };
+        }));
+        const tracks = await Promise.allSettled(monitored.map((trip) =>
+          api<TripTrack>(`/gps/trips/${encodeURIComponent(trip.id)}/track`),
+        ));
+        if (disposed) return;
         const previousTripIds = knownTripIds;
         knownTripIds = new Set(monitored.map((trip) => trip.id));
         setTrips(
-          monitored.map((trip) => {
+          monitored.map((trip, index) => {
             const gps = latestGpsPoint(trip.gps, receivedGps.get(trip.id));
             if (gps) receivedGps.set(trip.id, gps);
-            return { ...trip, gps };
+            const result = tracks[index];
+            const track = result.status === "fulfilled" ? result.value : undefined;
+            return { ...trip, gps: latestGpsPoint(gps, track?.position ?? undefined), track };
           }),
         );
         receivedGps.forEach((_, id) => {
           if (previousTripIds.has(id) && !knownTripIds.has(id)) receivedGps.delete(id);
         });
-        setError("");
+        setError(tracks.some((result) => result.status === "rejected") ? "Trip paths are unavailable. Showing the latest GPS readings." : "");
       } catch (reason) {
         if (!disposed)
           setError(
@@ -224,12 +240,10 @@ export function LiveGps() {
       const { ticketId, gps } = event;
       const latest = latestGpsPoint(receivedGps.get(ticketId), gps)!;
       receivedGps.set(ticketId, latest);
-      setTrips((current) =>
-        current.map((trip) =>
-          trip.id === ticketId ? { ...trip, gps: latestGpsPoint(trip.gps, latest) } : trip,
-        ),
-      );
-      if (!knownTripIds.has(ticketId)) void refresh();
+      setTrips((current) => current.map((trip) => trip.id === ticketId
+        ? { ...trip, gps: trip.track?.matching === "matched" ? trip.gps : latestGpsPoint(trip.gps, latest) }
+        : trip));
+      void refresh();
     });
     socket.on("connect_error", () => setConnection("reconnecting"));
     socket.on("disconnect", () => setConnection("reconnecting"));
@@ -240,6 +254,7 @@ export function LiveGps() {
     window.addEventListener("focus", onFocus);
     return () => {
       disposed = true;
+      window.clearInterval(clockInterval);
       socket.removeAllListeners();
       socket.disconnect();
       window.clearInterval(interval);
@@ -352,9 +367,10 @@ export function LiveGps() {
         </div>
       </header>
       <div className="gps-map-panel">
-        <CompanyGpsMap ref={mapRef} locations={locations} trips={trips} onSelect={selectMarker} />
+        <CompanyGpsMap ref={mapRef} locations={locations} trips={trips} onSelect={selectMarker} now={clock} />
         <footer className="gps-map-footer">
           <div className="gps-map-legend" aria-label="Map legend">
+            <span>Solid green: matched path · Dashed amber: estimated path</span>
             <span>
               <i className="branch" /> Branch
             </span>
@@ -400,7 +416,7 @@ export function LiveGps() {
             aria-controls="gps-fleet-panel"
             onClick={() => setActivePanel("fleet")}
           >
-            <Car ria-hidden="true" />
+            <Car aria-hidden="true" />
             Fleet <span>{trips.length}</span>
             {error && <i className="gps-fleet-alert" aria-label="Fleet data unavailable" />}
           </button>
@@ -564,6 +580,7 @@ export function LiveGps() {
                         </span>
                         <span className="gps-row-copy">
                           <b>{trip.plate}</b>
+                          <small>Trip {trip.id} · {trip.status === "completed" ? "Arrived — recording stopped" : "Departed — recording"}</small>
                           <OverdueBadge ticket={trip} />
                           <span>{trip.destination}</span>
                           {gps ? (
@@ -572,6 +589,15 @@ export function LiveGps() {
                                 {gps.latitude.toFixed(5)}, {gps.longitude.toFixed(5)}
                               </span>
                               <small>{formatGpsTime(gps.recordedAt)}</small>
+                              <small>
+                                {trip.track ? `${(trip.track.distanceMeters / 1000).toFixed(2)} km total${trip.track.incomplete ? " · Includes estimates / gaps" : ""}` : "Loading trip distance…"}
+                              </small>
+                              {!!trip.track?.estimatedDistanceMeters && <small>{(trip.track.estimatedDistanceMeters / 1000).toFixed(2)} km estimated</small>}
+                              <small>
+                                {!trip.track?.device?.enabled || !trip.track.device.lastSeenAt || clock - Date.parse(trip.track.device.lastSeenAt) > 30000 ? "Device offline · Marker hidden · " : ""}
+                                {clock - Date.parse(gps.recordedAt) > 30000 ? "GPS signal stale · " : ""}
+                                {trip.track?.matching === "matched" && trip.track.position?.id === gps.id ? "Road matched" : "Unmatched GPS · approximate location"}
+                              </small>
                             </>
                           ) : (
                             <small className="no-gps">Awaiting first valid GPS position</small>

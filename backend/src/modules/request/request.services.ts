@@ -83,7 +83,14 @@ export async function createTripRequest(requestInput: any) {
       where: { plate: requestInput.plate },
     });
     if (!requestedVehicle || requestedVehicle.status !== "STANDBY")
-      throw new AppError(409, "This vehicle is already requested or currently in use.");
+      throw new AppError(409, "This vehicle is not on standby. Choose an available vehicle.");
+    // A conditional update holds the vehicle row until submission commits, so a
+    // simultaneous departure cannot slip between the availability check and insert.
+    const available = await databaseTransaction.vehicle.updateMany({
+      where: { vehicleId: requestedVehicle.vehicleId, status: "STANDBY" },
+      data: { status: "STANDBY" },
+    });
+    if (!available.count) throw new AppError(409, "This vehicle is no longer on standby. Choose another vehicle.");
     const latestTripRequest = await databaseTransaction.tripRequest.findFirst({
       orderBy: { id: "desc" },
       select: { id: true },

@@ -39,7 +39,8 @@ io.on("connection", (socket) => {
   socket.join(`user:${socket.data.auth.userId}`);
   socket.join(`role:${socket.data.auth.role}`);
   socket.on("gps:subscribe", () => {
-    if (canAccessStaffPage(socket.data.auth, "live-gps")) socket.join("live-gps");
+    if (canAccessStaffPage(socket.data.auth, "live-gps"))
+      socket.join(socket.data.auth.role === "Department Head" ? `live-gps:${socket.data.auth.department}` : "live-gps");
   });
 });
 server.once("error", (error: NodeJS.ErrnoException) => {

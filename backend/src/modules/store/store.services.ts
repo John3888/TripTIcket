@@ -47,7 +47,7 @@ export async function publicStore({ actor, page }: StoreOptions) {
       include: {
         employee: true,
         vehicle: true,
-        gpsPoints: includeGps ? { orderBy: { recordedAt: "desc" }, take: 120 } : false,
+        gpsPoints: includeGps ? { where: { filterVersion: 1 }, orderBy: { recordedAt: "desc" }, take: 120 } : false,
       },
       orderBy: { requestedAt: "desc" },
     }),

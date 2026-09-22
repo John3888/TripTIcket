@@ -8,6 +8,7 @@ const schema = z.object({
   JWT_SECRET: z.string().min(24),
   JWT_EXPIRES_IN: z.string().default("1d"),
   EMB_GPS_DEVICE_KEY: z.string().default(""),
+  OSRM_URL: z.string().url().default("http://127.0.0.1:5000"),
   EMB_ESP32_TIMEOUT_MS: z.coerce.number().int().positive().default(65000),
   EMB_ESP32_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   EMB_ESP32_API_KEY: z.string().default(""),
