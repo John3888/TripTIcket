@@ -56,6 +56,7 @@ const allowedDevOrigins = [
 
 const nextConfig: NextConfig = {
   allowedDevOrigins,
+  output: "standalone",
 };
 
 // module.exports = nextConfig;

@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:24-bookworm-slim AS dependencies
+
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json ./
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+
+FROM dependencies AS builder
+
+WORKDIR /app
+
+COPY frontend ./
+
+ARG NEXT_PUBLIC_BACKEND_LAN_URL=http://localhost:8500
+ARG NEXT_PUBLIC_API_URL=http://localhost:8500/api
+ARG NEXT_PUBLIC_SOCKET_URL=http://localhost:8500
+
+ENV NEXT_PUBLIC_BACKEND_LAN_URL=${NEXT_PUBLIC_BACKEND_LAN_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL}
+
+RUN npm run build
+
+
+FROM node:24-bookworm-slim AS runner
+
+ENV NODE_ENV=production
+ENV PORT=8501
+ENV HOSTNAME=0.0.0.0
+
+WORKDIR /app
+
+RUN groupadd --system --gid 1001 nodejs \
+    && useradd --system --uid 1001 --gid nodejs nextjs
+
+COPY --from=builder \
+    --chown=nextjs:nodejs \
+    /app/.next/standalone \
+    ./
+
+COPY --from=builder \
+    --chown=nextjs:nodejs \
+    /app/.next/static \
+    ./.next/static
+
+COPY --from=builder \
+    --chown=nextjs:nodejs \
+    /app/public \
+    ./public
+
+USER nextjs
+
+EXPOSE 8501
+
+CMD ["node", "server.js"]
