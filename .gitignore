@@ -3,8 +3,8 @@ node_modules/
 dist/
 .env
 *.log
-gps_firmware/
-RFID/
+# gps_firmware/
+# RFID/
 osrm/
 .prettierignore
 .prettierrc.json
