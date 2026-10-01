@@ -13,3 +13,5 @@ README.md
 RFID-STATUS.md
 .docker-compose.yml
 docs/ 
+Dockerfile.api
+Dockerfile.web
