@@ -25,7 +25,7 @@ WORKDIR /app
 
 COPY backend ./
 
-RUN DATABASE_URL="mysql://unused:unused@localhost:3306/unused" \
+RUN DATABASE_URL="mysql://root:root@localhost:3306/emb_trip_ticket" \
     npx prisma generate
 
 RUN npm run build
@@ -34,7 +34,7 @@ RUN npm run build
 FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production
-ENV PORT=8500
+ENV PORT=5001
 
 WORKDIR /app
 
@@ -57,6 +57,6 @@ COPY --from=builder --chown=api:nodejs /app/node_modules ./node_modules
 
 USER api
 
-EXPOSE 8500
+EXPOSE 5001
 
 CMD ["npm", "start"]
