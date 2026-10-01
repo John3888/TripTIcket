@@ -6,7 +6,12 @@ type Point = { id: string; latitude: number; longitude: number; recordedAt: stri
 type Segment = { coordinates: number[][]; distanceMeters: number; estimated?: boolean; kind?: "observed" | "gap" };
 type Match = { segments: Segment[]; position: number[] | null; incomplete: boolean };
 const cache = new Map<string, { until: number; result: Promise<Match> }>();
+const gapCache = new Map<string, { until: number; result: Promise<Segment | null> }>();
 let unavailableUntil = 0;
+
+export function trailThreshold(a: Point, b: Point, base = ENV.GPS_TRAIL_MIN_METERS) {
+  return Math.max(base, a.accuracyMeters ?? 15, b.accuracyMeters ?? 15);
+}
 
 export function distance(a: Point, b: Point) {
   const rad = Math.PI / 180;
@@ -30,7 +35,7 @@ export function cleanTrace(points: Point[]) {
       else {
         const meters = distance(previous, point);
         if (meters / seconds > 55) continue;
-        if (meters < Math.max(5, Math.min(15, point.accuracyMeters ?? 5))) {
+        if (meters < trailThreshold(previous, point)) {
           previousTime = Date.parse(point.recordedAt);
           continue;
         }
@@ -91,15 +96,28 @@ async function bridge(a: Point, b: Point): Promise<Segment | null> {
   if (straight < 5) return null;
   // Do not invent multi-hour routes or join physically implausible jumps.
   if (seconds <= 0 || seconds > 900 || straight / seconds > 55) return null;
+  const key = `${a.id},${b.id}`;
+  const cached = gapCache.get(key);
+  if (cached && cached.until > Date.now()) return cached.result;
+  const fallback = { ...observed([a, b]), kind: "gap" as const };
+  if (unavailableUntil > Date.now()) return fallback;
+  const entry = { until: Date.now() + 60000, result: Promise.resolve<Segment | null>(fallback) };
+  entry.result = (async () => {
   try {
     const response = await fetch(`${ENV.OSRM_URL}/route/v1/driving/${a.longitude},${a.latitude};${b.longitude},${b.latitude}?geometries=geojson&overview=full`, { signal: AbortSignal.timeout(2000) });
     if (!response.ok) throw new Error();
     const data = await response.json() as { code: string; routes: { distance: number; geometry: { coordinates: number[][] } }[] };
     const route = data.routes?.[0];
-    if (data.code === "Ok" && route && route.distance / seconds <= 55 && route.distance < straight * 5)
+    if (data.code === "Ok" && route && route.distance / seconds <= 55 && route.distance < straight * 5) {
+      entry.until = Date.now() + 86400000;
       return { coordinates: route.geometry.coordinates, distanceMeters: route.distance, estimated: true, kind: "gap" };
-  } catch { /* Keep an explicit approximate gap if routing is unavailable. */ }
-  return { ...observed([a, b]), kind: "gap" };
+    }
+  } catch { unavailableUntil = Date.now() + 5000; }
+  return fallback;
+  })();
+  if (gapCache.size >= 1000) gapCache.delete(gapCache.keys().next().value!);
+  gapCache.set(key, entry);
+  return entry.result;
 }
 
 export async function tripTrack(ticketId: string, actor: { role: string; department: string }) {
@@ -127,7 +145,7 @@ export async function tripTrack(ticketId: string, actor: { role: string; departm
       const matched = await match(chunk);
       // Partial OSRM output must not silently erase observed movement.
       segments.push(...(matched.incomplete || !matched.segments.length ? [observed(chunk)] : matched.segments));
-      position = matched.position;
+      position = matched.incomplete ? null : matched.position;
       incomplete ||= matched.incomplete;
     }
     if (group.length === 1) { position = null; incomplete = true; }
@@ -139,12 +157,14 @@ export async function tripTrack(ticketId: string, actor: { role: string; departm
   // with a historical fix. Only use a match belonging to the newest report.
   const currentMatch = raw && latest && (latest.id === raw.id || distance(raw, latest) < 1) ? position : null;
   return {
-    device: trip.vehicle?.trackingDevice ? { enabled: trip.vehicle.trackingDevice.enabled, lastSeenAt: trip.vehicle.trackingDevice.lastSeenAt?.toISOString() ?? null } : null,
+    device: trip.vehicle?.trackingDevice ? { deviceId: trip.vehicle.trackingDevice.deviceId, vehicleId: trip.vehicleId, enabled: trip.vehicle.trackingDevice.enabled, lastSeenAt: trip.vehicle.trackingDevice.lastSeenAt?.toISOString() ?? null } : null,
+    trailLastPoint: latest ?? null, trailLastObservedAt: raw?.recordedAt ?? null,
+    trailMinMeters: ENV.GPS_TRAIL_MIN_METERS, inactiveTimeoutMs: ENV.GPS_INACTIVE_TIMEOUT_MS,
     departedAt: trip.departedAt?.toISOString() ?? null, arrivedAt: trip.arrivedAt?.toISOString() ?? null,
     estimatedDistanceMeters: segments.filter((s) => s.estimated).reduce((sum, s) => sum + s.distanceMeters, 0),
     ticketId, segments, distanceMeters: segments.reduce((sum, segment) => sum + segment.distanceMeters, 0),
     incomplete, matching: currentMatch ? "matched" : "unmatched",
-    position: raw ? { ...raw, longitude: currentMatch?.[0] ?? raw.longitude, latitude: currentMatch?.[1] ?? raw.latitude } : null,
+    position: raw ?? null,
     lastRecordedAt: raw?.recordedAt ?? null,
     sampleCount: points.length,
   };

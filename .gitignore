@@ -12,4 +12,4 @@ backend/prisma/legacy-seed.local.json
 README.md
 RFID-STATUS.md
 .docker-compose.yml
-hotdog/
+docs/ 

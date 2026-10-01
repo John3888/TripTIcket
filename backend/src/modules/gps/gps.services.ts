@@ -1,7 +1,8 @@
 import { prisma } from "../../config/prismaClient.js";
 import { AppError } from "../../middlewares/error.middleware.js";
-import { emitGpsPosition } from "../../realtime.js";
+import { emitGpsHeartbeat, emitGpsPosition } from "../../realtime.js";
 import { filterFix, signalQuality } from "./gps.filter.js";
+const GPS_MIN_REPORT_MS = 1000;
 export async function record(body: any) {
   if (!body.deviceId) throw new AppError(400, "A registered device ID is required.");
   const result = await prisma.$transaction(async (db) => {
@@ -10,6 +11,9 @@ export async function record(body: any) {
   const device = await db.trackingDevice.findUnique({ where: { deviceId: body.deviceId } });
   if (!device?.enabled) throw new AppError(403, "GPS device is not registered or is disabled.");
   const now = new Date();
+  // The device row lock makes this safety limit work across server workers.
+  if (device.lastSeenAt && now.getTime() - device.lastSeenAt.getTime() < GPS_MIN_REPORT_MS)
+    throw new AppError(429, "GPS reports must be spaced at least one second apart.");
   await db.trackingDevice.update({ where: { deviceId: device.deviceId }, data: { lastSeenAt: now } });
   await db.$queryRaw`SELECT id FROM trip_requests WHERE vehicle_id = ${device.vehicleId} AND status = 'ONGOING' FOR UPDATE`;
   const trip = await db.tripRequest.findFirst({
@@ -43,7 +47,15 @@ export async function record(body: any) {
     uptimeMs: body.uptimeMs == null ? undefined : BigInt(body.uptimeMs), acceleration: body.acceleration,
     sensorVersion: body.sensorVersion ?? 1, disposition: filtered.reason,
   } });
-  if (!filtered.state || !trip) return { ok: true, recorded: false, reason: filtered.reason };
+  const heartbeat = { deviceId: device.deviceId, vehicleId: device.vehicleId, lastSeenAt: now.toISOString() };
+  // Resolve authorized recipients before commit so an auxiliary query failure
+  // cannot lose the event for an already persisted report.
+  const viewers = await db.tripRequest.findMany({
+    where: { vehicleId: device.vehicleId, status: { in: ["ONGOING", "COMPLETED"] } },
+    distinct: ["employeeId"], select: { employee: { select: { department: true } } },
+  });
+  const heartbeatDepartments = [...new Set(viewers.map((trip) => trip.employee.department))];
+  if (!filtered.state || !trip) return { ok: true, recorded: false, reason: filtered.reason, heartbeat, heartbeatDepartments };
   const gps = await db.gpsPoint.create({
     data: {
       tripRequestId: trip.id,
@@ -67,8 +79,10 @@ export async function record(body: any) {
     accuracyMeters: gps.accuracyMeters === null ? null : Number(gps.accuracyMeters),
     recordedAt: gps.recordedAt.toISOString(),
   };
-  return { ok: true, recorded: true, ticketNo: trip.id, department: trip.employee?.department, gps: { ...position, tripRequestId: trip.id } };
+  return { ok: true, recorded: true, ticketNo: trip.id, department: trip.employee?.department, gps: { ...position, tripRequestId: trip.id }, heartbeat, heartbeatDepartments };
   }, { isolationLevel: "ReadCommitted" });
+  emitGpsHeartbeat(result.heartbeat, result.heartbeatDepartments);
   if (result.gps && result.ticketNo) emitGpsPosition({ ticketId: result.ticketNo, gps: result.gps }, result.department);
-  return result;
+  const { heartbeat: _heartbeat, heartbeatDepartments: _departments, ...response } = result;
+  return response;
 }
