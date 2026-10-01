@@ -11,10 +11,10 @@ services:
       - ./backend/.env
 
     environment:
-      PORT: 8500
+      PORT: 5001
 
     ports:
-      - "8500:8500"
+      - "5001:5001"
 
     networks:
       - tripticket-network
@@ -26,19 +26,19 @@ services:
       context: .
       dockerfile: Dockerfile.web
       args:
-        NEXT_PUBLIC_BACKEND_LAN_URL: http://localhost:8500
-        NEXT_PUBLIC_API_URL: http://localhost:8500/api
-        NEXT_PUBLIC_SOCKET_URL: http://localhost:8500
+        NEXT_PUBLIC_BACKEND_LAN_URL: http://localhost:5001
+        NEXT_PUBLIC_API_URL: http://localhost:5001/api
+        NEXT_PUBLIC_SOCKET_URL: http://localhost:5001
 
     container_name: tripticket-frontend
     restart: unless-stopped
 
     environment:
-      PORT: 8501
+      PORT: 3006
       HOSTNAME: 0.0.0.0
 
     ports:
-      - "8501:8501"
+      - "3006:3006"
 
     depends_on:
       - backend
