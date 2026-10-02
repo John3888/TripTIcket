@@ -16,9 +16,9 @@ WORKDIR /app
 
 COPY frontend ./
 
-ARG NEXT_PUBLIC_BACKEND_LAN_URL=http://localhost:5001
-ARG NEXT_PUBLIC_API_URL=http://localhost:5001/api
-ARG NEXT_PUBLIC_SOCKET_URL=http://localhost:5001
+ARG NEXT_PUBLIC_BACKEND_LAN_URL=http://localhost:8500
+ARG NEXT_PUBLIC_API_URL=http://localhost:8500/api
+ARG NEXT_PUBLIC_SOCKET_URL=http://localhost:8500
 
 ENV NEXT_PUBLIC_BACKEND_LAN_URL=${NEXT_PUBLIC_BACKEND_LAN_URL}
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
@@ -30,7 +30,7 @@ RUN npm run build
 FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production
-ENV PORT=3006
+ENV PORT=8501
 ENV HOSTNAME=0.0.0.0
 
 WORKDIR /app
@@ -55,6 +55,6 @@ COPY --from=builder \
 
 USER nextjs
 
-EXPOSE 3006
+EXPOSE 8501
 
 CMD ["node", "server.js"]

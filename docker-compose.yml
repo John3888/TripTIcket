@@ -11,35 +11,34 @@ services:
       - ./backend/.env
 
     environment:
-      NODE_ENV: development
-      PORT: 5001
-      DATABASE_URL: mysql://root:@host.docker.internal:3306/emb_trip_ticket
+      PORT: 8500
 
     ports:
-      - "5001:5001"
+      - "8500:8500"
 
     networks:
       - tripticket-network
+      - mysql_database_network
+
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_BACKEND_LAN_URL: http://localhost:8500
+        NEXT_PUBLIC_API_URL: http://localhost:8500/api
+        NEXT_PUBLIC_SOCKET_URL: http://localhost:8500
 
     container_name: tripticket-frontend
     restart: unless-stopped
 
     environment:
-      NODE_ENV: development
-      PORT: 3006
+      PORT: 8501
       HOSTNAME: 0.0.0.0
 
-      NEXT_PUBLIC_BACKEND_LAN_URL: http://localhost:5001
-      NEXT_PUBLIC_API_URL: http://localhost:5001/api
-      NEXT_PUBLIC_SOCKET_URL: http://localhost:5001
-
     ports:
-      - "3006:3006"
+      - "8501:8501"
 
     depends_on:
       - backend
@@ -47,6 +46,10 @@ services:
     networks:
       - tripticket-network
 
+
 networks:
   tripticket-network:
     driver: bridge
+
+  mysql_database_network:
+    external: true
