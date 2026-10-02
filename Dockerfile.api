@@ -25,7 +25,7 @@ WORKDIR /app
 
 COPY backend ./
 
-RUN DATABASE_URL="mysql://root:root@localhost:3306/emb_trip_ticket" \
+RUN DATABASE_URL="mysql://root:@localhost:3306/emb_trip_ticket" \
     npx prisma generate
 
 RUN npm run build

@@ -4,10 +4,11 @@ export const login: RequestHandler = async (req, res) => {
   const result = await service.login(req.body.email || req.body.username, req.body.password);
   res
     .cookie("EMB_TTR_SESSION", result.token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 86400000,
+  httpOnly: true,
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+  maxAge: 86400000,
+  path: "/",
     })
     .json({ ok: true, user: result.user });
 };
