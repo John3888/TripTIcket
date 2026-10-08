@@ -60,11 +60,22 @@ export interface Ticket {
   gps?: GpsPoint | null;
   gpsTrail?: GpsPoint[];
   track?: TripTrack;
+  device?: GpsDevice | null;
+}
+export interface GpsDevice {
+  deviceId: string;
+  vehicleId: string;
+  enabled: boolean;
+  lastSeenAt: string | null;
 }
 export interface TripTrack {
   ticketId: string;
-  segments: { coordinates: number[][]; distanceMeters: number; estimated?: boolean; kind?: "observed" | "gap" }[];
-  device?: { enabled: boolean; lastSeenAt: string | null } | null;
+  segments: { coordinates: number[][]; distanceMeters: number; estimated?: boolean; kind?: "observed" | "gap"; live?: boolean }[];
+  device?: GpsDevice | null;
+  trailLastPoint?: GpsPoint | null;
+  trailLastObservedAt?: string | null;
+  trailMinMeters?: number;
+  inactiveTimeoutMs?: number;
   departedAt?: string | null;
   arrivedAt?: string | null;
   estimatedDistanceMeters?: number;

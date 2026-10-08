@@ -46,7 +46,7 @@ export async function publicStore({ actor, page }: StoreOptions) {
     prisma.tripRequest.findMany({
       include: {
         employee: true,
-        vehicle: true,
+        vehicle: { include: { trackingDevice: includeGps } },
         gpsPoints: includeGps ? { where: { filterVersion: 1 }, orderBy: { recordedAt: "desc" }, take: 120 } : false,
       },
       orderBy: { requestedAt: "desc" },
@@ -100,6 +100,11 @@ export async function publicStore({ actor, page }: StoreOptions) {
       decisionStatus: r.decisionStatus || "",
       ...tripTiming(r),
       gps: includeGps ? gpsTrail.at(-1) || null : null,
+      ...(includeGps ? { device: r.vehicle.trackingDevice ? {
+        deviceId: r.vehicle.trackingDevice.deviceId, vehicleId: r.vehicleId,
+        enabled: r.vehicle.trackingDevice.enabled,
+        lastSeenAt: r.vehicle.trackingDevice.lastSeenAt?.toISOString() ?? null,
+      } : null } : {}),
       gpsTrail: includeGps ? gpsTrail : [],
     };
   });

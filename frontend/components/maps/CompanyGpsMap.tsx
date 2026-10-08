@@ -10,6 +10,7 @@ import { formatGpsTime, hasValidCoordinates } from "./gps-utils";
 import { Car } from "lucide-react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { animateMarker, motionPath } from "./marker-motion";
+import { deviceActive, tripDevice } from "./live-trail";
 
 const DEFAULT_CENTER: Leaflet.LatLngTuple = [10.662087, 122.951214];
 const OVERVIEW_ZOOM = 17;
@@ -128,7 +129,8 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
   const staticMarkers = useRef(new Map<string, Leaflet.Marker>());
   const vehicleMarkers = useRef(new Map<string, Leaflet.Marker>());
   const motion = useRef(new Map<string, { target: string; cancel: () => void; time: number }>());
-  const trails = useRef<Leaflet.LayerGroup | null>(null);
+  const trails = useRef(new Map<string, { segments: NonNullable<Ticket["track"]>["segments"]; layer: Leaflet.LayerGroup }>());
+  const markerData = useRef(new Map<string, Ticket>());
   const tripBounds = useRef(new Map<string, Leaflet.LatLngBounds>());
   const selectedMarker = useRef<string | null>(null);
   const mainLocation =
@@ -222,6 +224,8 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
     const fixed = staticMarkers.current;
     const vehicles = vehicleMarkers.current;
     const animations = motion.current;
+    const paths = trails.current;
+    const markerTrips = markerData.current;
 
     // Leaflet requires window/document. Import only after the client mounts.
     void import("leaflet")
@@ -308,6 +312,8 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
       vehicles.clear();
       animations.forEach((item) => item.cancel());
       animations.clear();
+      paths.clear();
+      markerTrips.clear();
     };
   }, [locations, focusMarker, mainLocation, onSelect]);
 
@@ -315,26 +321,51 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
     const map = readyMap;
     const L = leafletRef.current;
     if (!map || map !== mapRef.current || !L) return;
-    trails.current?.remove();
-    trails.current = L.layerGroup().addTo(map);
-    tripBounds.current.clear();
-    const visibleIds = new Set<string>();
+    const ids = new Set(trips.map((trip) => trip.id));
+    trails.current.forEach((item, id) => {
+      if (!ids.has(id)) { item.layer.remove(); trails.current.delete(id); tripBounds.current.delete(`vehicle:${id}`); }
+    });
     trips.forEach((trip) => {
+      const segments = trip.track?.segments;
+      const previous = trails.current.get(trip.id);
+      if (!segments || previous?.segments === segments) return;
+      previous?.layer.remove();
+      const layer = L.layerGroup().addTo(map);
       const bounds = L.latLngBounds([]);
-      trip.track?.segments.forEach((segment) => {
+      segments.forEach((segment) => {
         segment.coordinates.forEach(([lng, lat]) => bounds.extend([lat, lng]));
         L.polyline(segment.coordinates.map(([lng, lat]) => [lat, lng] as Leaflet.LatLngTuple), {
           color: segment.estimated ? "#b7791f" : "#168253", weight: 5, opacity: 0.9,
           dashArray: segment.estimated ? "8 6" : undefined,
-        }).bindTooltip(textElement("span", `${trip.plate} · Trip ${trip.id} · ${segment.estimated ? "Estimated" : "Road matched"} ${(segment.distanceMeters / 1000).toFixed(2)} km`)).addTo(trails.current!);
+        }).bindTooltip(textElement("span", `${trip.plate} · Trip ${trip.id} · ${segment.estimated ? "Estimated" : "Road matched"} ${(segment.distanceMeters / 1000).toFixed(2)} km`)).addTo(layer);
       });
+      trails.current.set(trip.id, { segments, layer });
+      tripBounds.current.delete(`vehicle:${trip.id}`);
       if (bounds.isValid()) tripBounds.current.set(`vehicle:${trip.id}`, bounds);
+    });
+  }, [trips, readyMap]);
+
+  useEffect(() => {
+    const map = readyMap;
+    const L = leafletRef.current;
+    if (!map || map !== mapRef.current || !L) return;
+    const visibleIds = new Set<string>();
+    // Completed trip paths remain selectable, but only the newest accepted
+    // position for a tracker creates a vehicle marker.
+    const latest = new Map<string, Ticket>();
+    trips.forEach((trip) => {
       if (!hasValidCoordinates(trip.gps)) return;
-      const device = trip.track?.device;
-      if (trip.status !== "ongoing" || !device?.enabled || !device.lastSeenAt || now - Date.parse(device.lastSeenAt) > 30000) return;
+      const id = tripDevice(trip)?.vehicleId ?? trip.plate;
+      const previous = latest.get(id);
+      if (!previous?.gps || Date.parse(trip.gps.recordedAt) > Date.parse(previous.gps.recordedAt)) latest.set(id, trip);
+    });
+    latest.forEach((trip) => {
+      if (!hasValidCoordinates(trip.gps)) return;
       const key = `vehicle:${trip.id}`;
       visibleIds.add(key);
       const existing = vehicleMarkers.current.get(key);
+      if (existing && markerData.current.get(key) === trip) return;
+      markerData.current.set(key, trip);
       if (existing) {
         // Updating an existing marker leaves the operator's zoom and pan intact.
         const end: Leaflet.LatLngTuple = [trip.gps.latitude, trip.gps.longitude];
@@ -387,6 +418,7 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
       if (!visibleIds.has(key)) {
         marker.remove();
         vehicleMarkers.current.delete(key);
+        markerData.current.delete(key);
         motion.current.get(key)?.cancel();
         motion.current.delete(key);
         if (selectedMarker.current === key && !tripBounds.current.has(key)) {
@@ -395,7 +427,19 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
         }
       }
     });
-  }, [trips, readyMap, onSelect, focusMarker, now]);
+  }, [trips, readyMap, onSelect, focusMarker]);
+
+  useEffect(() => {
+    trips.forEach((trip) => {
+      const marker = vehicleMarkers.current.get(`vehicle:${trip.id}`);
+      if (!marker) return;
+      const active = deviceActive(tripDevice(trip), now, trip.track?.inactiveTimeoutMs);
+      const element = marker.getElement();
+      if (element?.classList.contains("is-inactive") === !active) return;
+      element?.classList.toggle("is-inactive", !active);
+      marker.setOpacity(active ? 1 : 0.45);
+    });
+  }, [trips, readyMap, now]);
 
   return (
     <div className="gps-map-surface">

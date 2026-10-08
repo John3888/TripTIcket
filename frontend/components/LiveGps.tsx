@@ -25,6 +25,7 @@ import type { GpsPoint, Ticket, TripTrack } from "@/types/trip-ticket";
 import { api } from "@/services/api";
 import { CompanyGpsMap, type CompanyGpsMapHandle } from "./maps/CompanyGpsMap";
 import { OverdueBadge } from "./TravelTime";
+import { applyHeartbeat, applyPosition, deviceActive, POSITION_STALE_MS, tripDevice, validPosition } from "./maps/live-trail";
 import {
   formatGpsTime,
   hasValidCoordinates,
@@ -162,11 +163,15 @@ export function LiveGps() {
 
   useEffect(() => {
     let disposed = false;
+    const initialClock = window.setTimeout(() => setClock(Date.now()), 0);
     const clockInterval = window.setInterval(() => setClock(Date.now()), 5000);
     let fetching = false;
     let refreshQueued = false;
-    let knownTripIds = new Set<string>();
-    const receivedGps = new Map<string, GpsPoint>();
+    let lastRefresh = 0;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const receivedGps = new Map<string, GpsPoint[]>();
+    const heartbeats = new Map<string, { deviceId: string; vehicleId: string; lastSeenAt: string }>();
+    const completedTracks = new Map<string, { key: string; track: TripTrack }>();
     const refresh = async () => {
       if (disposed) return;
       if (fetching) {
@@ -174,37 +179,55 @@ export function LiveGps() {
         return;
       }
       fetching = true;
+      receivedGps.clear();
       try {
         const store = await ticketService.store("live-gps");
         if (disposed) return;
         const monitored = [...store.outgoing, ...store.history.filter((ticket) => ticket.status === "completed" && ticket.gps)].filter(
           (ticket) => ticket.status === "ongoing" || ticket.gps,
         );
-        // Publish current telemetry immediately; road matching must not freeze the fleet.
+        // Publish accepted positions/liveness before optional reconstruction finishes.
         setTrips((current) => monitored.map((trip) => {
           const previous = current.find((item) => item.id === trip.id);
-          const gps = latestGpsPoint(trip.gps, receivedGps.get(trip.id));
-          const matched = previous?.track?.position;
-          return { ...trip, gps: previous?.track?.matching === "matched" ? previous.gps : latestGpsPoint(gps, matched ?? undefined), track: previous?.track };
+          let next: Ticket = { ...trip, gps: latestGpsPoint(trip.gps, previous?.gps ?? undefined), track: previous?.track };
+          const device = tripDevice(next);
+          const heartbeat = device && heartbeats.get(device.deviceId);
+          if (heartbeat) next = applyHeartbeat(next, heartbeat);
+          return next;
         }));
-        const tracks = await Promise.allSettled(monitored.map((trip) =>
-          api<TripTrack>(`/gps/trips/${encodeURIComponent(trip.id)}/track`),
-        ));
+        // Bound reconstruction concurrency; completed geometry is reused until
+        // its final point or arrival changes. No position/heartbeat calls this.
+        const tracks: PromiseSettledResult<TripTrack>[] = [];
+        let cursor = 0;
+        await Promise.all(Array.from({ length: Math.min(4, monitored.length) }, async () => {
+          while (!disposed && cursor < monitored.length) {
+            const index = cursor++;
+            const trip = monitored[index];
+            const key = `${trip.gps?.id ?? ""}:${trip.arrival ?? ""}`;
+            const cached = trip.status === "completed" ? completedTracks.get(trip.id) : undefined;
+            try {
+              const track = cached?.key === key ? cached.track : await api<TripTrack>(`/gps/trips/${encodeURIComponent(trip.id)}/track`);
+              tracks[index] = { status: "fulfilled", value: track };
+              if (trip.status === "completed") completedTracks.set(trip.id, { key, track });
+            } catch (reason) { tracks[index] = { status: "rejected", reason }; }
+          }
+        }));
         if (disposed) return;
-        const previousTripIds = knownTripIds;
-        knownTripIds = new Set(monitored.map((trip) => trip.id));
-        setTrips(
-          monitored.map((trip, index) => {
-            const gps = latestGpsPoint(trip.gps, receivedGps.get(trip.id));
-            if (gps) receivedGps.set(trip.id, gps);
+        const pendingPositions = new Map([...receivedGps].map(([id, points]) => [id, [...points]]));
+        setTrips((current) => monitored.map((trip, index) => {
+            const previous = current.find((item) => item.id === trip.id);
             const result = tracks[index];
-            const track = result.status === "fulfilled" ? result.value : undefined;
-            return { ...trip, gps: latestGpsPoint(gps, track?.position ?? undefined), track };
-          }),
-        );
-        receivedGps.forEach((_, id) => {
-          if (previousTripIds.has(id) && !knownTripIds.has(id)) receivedGps.delete(id);
-        });
+            const track = result?.status === "fulfilled" ? result.value : previous?.track;
+            let next: Ticket = { ...trip, gps: result?.status === "fulfilled" ? track?.position ?? trip.gps : previous?.gps ?? trip.gps, track };
+            // Replay only deltas newer than the authoritative snapshot. Events
+            // received while HTTP/OSRM was pending must not be overwritten.
+            for (const point of pendingPositions.get(trip.id) ?? []) next = applyPosition(next, point);
+            const device = tripDevice(next);
+            const heartbeat = device && heartbeats.get(device.deviceId);
+            if (heartbeat) next = applyHeartbeat(next, heartbeat);
+            return next;
+          }));
+        lastRefresh = Date.now();
         setError(tracks.some((result) => result.status === "rejected") ? "Trip paths are unavailable. Showing the latest GPS readings." : "");
       } catch (reason) {
         if (!disposed)
@@ -225,35 +248,48 @@ export function LiveGps() {
     refreshRef.current = () => {
       void refresh();
     };
-    void refresh();
+    // A short fallback covers an unavailable socket. Normally the first connect
+    // subscribes before fetching, avoiding redundant initial recovery requests.
+    const initialTimer = setTimeout(() => { void refresh(); }, 750);
     const socket = createRealtimeClient();
     socket.on("connect", () => {
       setConnection("connected");
       socket.emit("gps:subscribe");
+      clearTimeout(initialTimer);
       void refresh();
     });
     socket.on("store:updated", () => {
-      void refresh();
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { void refresh(); }, 250);
     });
     socket.on("gps:position", (event: { ticketId: string; gps: GpsPoint } | null) => {
-      if (!event || typeof event.ticketId !== "string" || !hasValidCoordinates(event.gps)) return;
+      if (!event || typeof event.ticketId !== "string" || !validPosition(event.gps)) return;
       const { ticketId, gps } = event;
-      const latest = latestGpsPoint(receivedGps.get(ticketId), gps)!;
-      receivedGps.set(ticketId, latest);
-      setTrips((current) => current.map((trip) => trip.id === ticketId
-        ? { ...trip, gps: trip.track?.matching === "matched" ? trip.gps : latestGpsPoint(trip.gps, latest) }
-        : trip));
-      void refresh();
+      if (fetching) {
+        const pending = receivedGps.get(ticketId) ?? [];
+        pending.push(gps); receivedGps.set(ticketId, pending);
+      }
+      setTrips((current) => current.map((trip) => trip.id === ticketId ? applyPosition(trip, gps) : trip));
+    });
+    socket.on("gps:heartbeat", (event: { deviceId: string; vehicleId: string; lastSeenAt: string } | null) => {
+      if (!event || typeof event.deviceId !== "string" || typeof event.vehicleId !== "string" || typeof event.lastSeenAt !== "string" || !Number.isFinite(Date.parse(event.lastSeenAt))) return;
+      const previous = heartbeats.get(event.deviceId);
+      if (previous && Date.parse(previous.lastSeenAt) >= Date.parse(event.lastSeenAt)) return;
+      heartbeats.set(event.deviceId, event);
+      setTrips((current) => current.map((trip) => applyHeartbeat(trip, event)));
     });
     socket.on("connect_error", () => setConnection("reconnecting"));
     socket.on("disconnect", () => setConnection("reconnecting"));
-    const interval = window.setInterval(refreshRef.current, 15000);
+    const interval = window.setInterval(refreshRef.current, 300000);
     const onFocus = () => {
-      void refresh();
+      if (Date.now() - lastRefresh > 60000) void refresh();
     };
     window.addEventListener("focus", onFocus);
     return () => {
       disposed = true;
+      window.clearTimeout(initialClock);
+      clearTimeout(initialTimer);
+      clearTimeout(refreshTimer);
       window.clearInterval(clockInterval);
       socket.removeAllListeners();
       socket.disconnect();
@@ -594,9 +630,9 @@ export function LiveGps() {
                               </small>
                               {!!trip.track?.estimatedDistanceMeters && <small>{(trip.track.estimatedDistanceMeters / 1000).toFixed(2)} km estimated</small>}
                               <small>
-                                {!trip.track?.device?.enabled || !trip.track.device.lastSeenAt || clock - Date.parse(trip.track.device.lastSeenAt) > 30000 ? "Device offline · Marker hidden · " : ""}
-                                {clock - Date.parse(gps.recordedAt) > 30000 ? "GPS signal stale · " : ""}
-                                {trip.track?.matching === "matched" && trip.track.position?.id === gps.id ? "Road matched" : "Unmatched GPS · approximate location"}
+                                {deviceActive(tripDevice(trip), clock, trip.track?.inactiveTimeoutMs) ? "Device active · " : "Device inactive · Last known position · "}
+                                {clock - Date.parse(gps.recordedAt) > POSITION_STALE_MS ? "Last accepted position is over 2 minutes old · " : ""}
+                                {trip.track?.matching === "matched" && trip.track.position?.id === gps.id ? "Path road matched · Accepted GPS position" : "Accepted GPS position"}
                               </small>
                             </>
                           ) : (

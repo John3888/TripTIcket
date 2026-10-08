@@ -726,6 +726,10 @@
   line-height: 1;
   transform: rotate(-45deg);
 }
+.gps-vehicle-marker.is-inactive {
+  color: #b42318;
+  border-color: #b42318;
+}
 .gps-popup {
   user-select: text;
   color: #263c30;

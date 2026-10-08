@@ -30,6 +30,16 @@ export function emitGpsPosition(position: {
   else recipients?.emit("gps:position", position);
 }
 
+export function emitGpsHeartbeat(heartbeat: {
+  deviceId: string;
+  vehicleId: string;
+  lastSeenAt: string;
+}, departments: string[]) {
+  let recipients = io?.to("live-gps");
+  departments.forEach((department) => { recipients = recipients?.to(`live-gps:${department}`); });
+  recipients?.emit("gps:heartbeat", heartbeat);
+}
+
 export function emitNotification(notification: {
   recipients: unknown;
   id: string;
