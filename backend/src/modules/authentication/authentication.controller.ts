@@ -7,7 +7,7 @@ export const login: RequestHandler = async (req, res) => {
   httpOnly: true,
   sameSite: "lax",
   secure: process.env.NODE_ENV === "production",
-  maxAge: 86400000,
+  maxAge: 28800000,
   path: "/",
     })
     .json({ ok: true, user: result.user });
