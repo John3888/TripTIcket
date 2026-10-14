@@ -1,7 +1,13 @@
 export type Role =
-  "Department Head" | "HR Head" | "Finance Head" | "Administrator" | "Requester" | "Employee";
+  | "Department Head"
+  | "HR Head"
+  | "Finance Head"
+  | "Administrator"
+  | "Requester"
+  | "Employee";
 export type Department = "MIS" | "FINANCE" | "HUMAN_RESOURCES" | "OPERATIONS";
-export type TicketStatus = "pending" | "noted" | "approved" | "ongoing" | "completed" | "denied";
+export type TicketStatus =
+  "pending" | "noted" | "approved" | "ongoing" | "completed" | "denied";
 export interface User {
   userId: string;
   employeeId: string;
@@ -70,7 +76,13 @@ export interface GpsDevice {
 }
 export interface TripTrack {
   ticketId: string;
-  segments: { coordinates: number[][]; distanceMeters: number; estimated?: boolean; kind?: "observed" | "gap"; live?: boolean }[];
+  segments: {
+    coordinates: number[][];
+    distanceMeters: number;
+    estimated?: boolean;
+    kind?: "observed" | "gap";
+    live?: boolean;
+  }[];
   device?: GpsDevice | null;
   trailLastPoint?: GpsPoint | null;
   trailLastObservedAt?: string | null;
@@ -113,6 +125,7 @@ export interface ScanResult {
   movementTickets?: Ticket[];
 }
 export interface PublicStore {
+  departurePrint?: import("@/services/report.service").PrintResult;
   employees: Employee[];
   vehicles: Vehicle[];
   users: User[];

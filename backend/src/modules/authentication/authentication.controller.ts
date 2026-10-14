@@ -12,7 +12,8 @@ export const login: RequestHandler = async (req, res) => {
     })
     .json({ ok: true, user: result.user });
 };
-export const session: RequestHandler = (req, res) => res.json({ ok: true, user: req.auth });
+export const session: RequestHandler = (req, res) =>
+  res.setHeader("Cache-Control", "no-store").json({ ok: true, user: req.auth });
 export const logout: RequestHandler = (_req, res) => {
   res.clearCookie("EMB_TTR_SESSION").json({ ok: true });
 };

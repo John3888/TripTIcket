@@ -1,10 +1,14 @@
 "use client";
 import { CreditCard, ShieldCheck, UserPlus } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { accountService, type ExistingCardAssignment } from "@/services/account.service";
+import {
+  accountService,
+  type ExistingCardAssignment,
+} from "@/services/account.service";
 import { ScanModal } from "./ScanModal";
 import type { Department, ScanResult } from "@/types/trip-ticket";
 import { DEPARTMENTS, departmentLabel } from "@/app/(admin)/config/menu.config";
+import { printBrowserCredentials } from "@/services/thermal-print";
 
 type Employee = ExistingCardAssignment;
 const REGISTRY_TABS = [
@@ -40,7 +44,9 @@ export function AccountRegistry() {
       setEmployees(unassigned.employees);
       setAccounts(allEmployees.employees);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load employee accounts.");
+      setError(
+        e instanceof Error ? e.message : "Unable to load employee accounts.",
+      );
     } finally {
       setLoading(false);
     }
@@ -87,7 +93,12 @@ export function AccountRegistry() {
         firstName: String(form.get("firstName")),
         middleName: String(form.get("middleName")),
         surname: String(form.get("surname")),
-        role: role as "Employee" | "Department Head" | "HR Head" | "Finance Head" | "Administrator",
+        role: role as
+          | "Employee"
+          | "Department Head"
+          | "HR Head"
+          | "Finance Head"
+          | "Administrator",
         department,
       });
       setMessage(
@@ -97,8 +108,21 @@ export function AccountRegistry() {
       formElement.reset();
       await load();
       setView("assign");
+      if (result.credentialPrint?.mode === "error")
+        setError(`Account is already created. ${result.credentialPrint.error}`);
+      if (result.credentialPrint?.mode === "browser") {
+        try {
+          await printBrowserCredentials(result);
+        } catch (error) {
+          setError(
+            `Account is already created. ${error instanceof Error ? error.message : "Credential printing failed."}`,
+          );
+        }
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Account could not be created.");
+      setError(
+        e instanceof Error ? e.message : "Account could not be created.",
+      );
     } finally {
       setBusy(false);
     }
@@ -118,18 +142,29 @@ export function AccountRegistry() {
     try {
       const result = await accountService.updateEmployee(editingEmployeeId, {
         role: editRole as
-          "Employee" | "Department Head" | "HR Head" | "Finance Head" | "Administrator",
+          | "Employee"
+          | "Department Head"
+          | "HR Head"
+          | "Finance Head"
+          | "Administrator",
         department: editDepartment,
       });
       setMessage(`${result.employee.name}'s role and department were updated.`);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Employee account could not be updated.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Employee account could not be updated.",
+      );
     } finally {
       setBusy(false);
     }
   };
-  const navigateTabs = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+  const navigateTabs = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
     const next =
       event.key === "ArrowRight"
         ? (index + 1) % REGISTRY_TABS.length
@@ -143,11 +178,17 @@ export function AccountRegistry() {
     if (next === null) return;
     event.preventDefault();
     setView(REGISTRY_TABS[next].value);
-    document.getElementById(`registry-tab-${REGISTRY_TABS[next].value}`)?.focus();
+    document
+      .getElementById(`registry-tab-${REGISTRY_TABS[next].value}`)
+      ?.focus();
   };
   return (
     <section className="registry-panel">
-      <div className="registry-tabs" role="tablist" aria-label="Account management">
+      <div
+        className="registry-tabs"
+        role="tablist"
+        aria-label="Account management"
+      >
         {REGISTRY_TABS.map((tab, index) => (
           <button
             key={tab.value}
@@ -200,7 +241,8 @@ export function AccountRegistry() {
             <span>Account created</span>
             <b>{createdAccount.name}</b>
             <small>
-              {createdAccount.role} · {departmentLabel(createdAccount.department)}
+              {createdAccount.role} ·{" "}
+              {departmentLabel(createdAccount.department)}
             </small>
           </section>
         )}
@@ -209,8 +251,8 @@ export function AccountRegistry() {
             {card ? (
               <>
                 <p>
-                  Card UID <b>{card.uid}</b> is ready to assign. Choose an account that does not
-                  already have a card.
+                  Card UID <b>{card.uid}</b> is ready to assign. Choose an
+                  account that does not already have a card.
                 </p>
                 <label>
                   <span>Employee account</span>
@@ -223,16 +265,19 @@ export function AccountRegistry() {
                       {loading ? "Loading employees…" : "Select an employee"}
                     </option>
                     {employees.map((employee) => (
-                      <option key={employee.employeeId} value={employee.employeeId}>
-                        {employee.name} · {employee.employeeId} · {employee.role} ·{" "}
-                        {departmentLabel(employee.department)}
+                      <option
+                        key={employee.employeeId}
+                        value={employee.employeeId}
+                      >
+                        {employee.name} · {employee.employeeId} ·{" "}
+                        {employee.role} · {departmentLabel(employee.department)}
                       </option>
                     ))}
                   </select>
                   {!loading && !employees.length && (
                     <small className="field-help">
-                      All employee accounts already have cards. Create an account first to connect
-                      this card.
+                      All employee accounts already have cards. Create an
+                      account first to connect this card.
                     </small>
                   )}
                 </label>
@@ -247,7 +292,11 @@ export function AccountRegistry() {
                   >
                     Scan another card
                   </button>
-                  <button className="btn primary" disabled={!selected || busy} onClick={assign}>
+                  <button
+                    className="btn primary"
+                    disabled={!selected || busy}
+                    onClick={assign}
+                  >
                     {busy ? "Connecting card…" : "Assign card"}
                   </button>
                 </div>
@@ -255,8 +304,9 @@ export function AccountRegistry() {
             ) : (
               <>
                 <p>
-                  Have the employee card ready, then open the reader. We’ll check whether it is
-                  already assigned before connecting it to an account.
+                  Have the employee card ready, then open the reader. We’ll
+                  check whether it is already assigned before connecting it to
+                  an account.
                 </p>
                 <button className="btn primary" onClick={() => setScan(true)}>
                   <CreditCard /> Open card reader
@@ -299,8 +349,8 @@ export function AccountRegistry() {
                 <option>Administrator</option>
               </select>
               <small className="field-help">
-                Employees request trips. Heads review requests for their role; administrators manage
-                accounts and operations.
+                Employees request trips. Heads review requests for their role;
+                administrators manage accounts and operations.
               </small>
             </label>
             <label>
@@ -324,8 +374,8 @@ export function AccountRegistry() {
               <div>
                 <h3>Ready to get started</h3>
                 <p>
-                  Sign-in details are generated after creation. Connect an RFID card in the next
-                  step.
+                  Sign-in details are generated after creation. Connect an RFID
+                  card in the next step.
                 </p>
               </div>
             </div>
@@ -336,7 +386,8 @@ export function AccountRegistry() {
         ) : (
           <section className="settings-grid">
             <p className="registry-description wide">
-              Update an employee&apos;s role or department. Their next sign-in uses the new access.
+              Update an employee&apos;s role or department. Their next sign-in
+              uses the new access.
             </p>
             <label className="wide">
               <span>Employee</span>
@@ -345,10 +396,13 @@ export function AccountRegistry() {
                 onChange={(event) => chooseEmployeeToEdit(event.target.value)}
                 disabled={loading || busy}
               >
-                <option value="">{loading ? "Loading employees…" : "Select an employee"}</option>
+                <option value="">
+                  {loading ? "Loading employees…" : "Select an employee"}
+                </option>
                 {accounts.map((employee) => (
                   <option key={employee.employeeId} value={employee.employeeId}>
-                    {employee.name} · {employee.employeeId} · {departmentLabel(employee.department)}
+                    {employee.name} · {employee.employeeId} ·{" "}
+                    {departmentLabel(employee.department)}
                   </option>
                 ))}
               </select>
@@ -357,7 +411,10 @@ export function AccountRegistry() {
               <>
                 <label>
                   <span>Role</span>
-                  <select value={editRole} onChange={(event) => setEditRole(event.target.value)}>
+                  <select
+                    value={editRole}
+                    onChange={(event) => setEditRole(event.target.value)}
+                  >
                     <option>Employee</option>
                     <option>Department Head</option>
                     <option>HR Head</option>
@@ -369,7 +426,9 @@ export function AccountRegistry() {
                   <span>Department</span>
                   <select
                     value={editDepartment}
-                    onChange={(event) => setEditDepartment(event.target.value as Department)}
+                    onChange={(event) =>
+                      setEditDepartment(event.target.value as Department)
+                    }
                   >
                     {DEPARTMENTS.map((department) => (
                       <option key={department.value} value={department.value}>
@@ -378,7 +437,11 @@ export function AccountRegistry() {
                     ))}
                   </select>
                 </label>
-                <button className="btn primary" disabled={busy} onClick={() => void saveEmployee()}>
+                <button
+                  className="btn primary"
+                  disabled={busy}
+                  onClick={() => void saveEmployee()}
+                >
                   {busy ? "Saving changes…" : "Save employee changes"}
                 </button>
               </>

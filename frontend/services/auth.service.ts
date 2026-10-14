@@ -20,6 +20,10 @@ export const authService = {
         })
       ).user,
     ),
-  session: async () => adaptUser((await api<{ user: RawUser }>("/auth/session")).user),
+  session: async () =>
+    adaptUser(
+      (await api<{ user: RawUser }>("/auth/session", { cache: "no-store" }))
+        .user,
+    ),
   logout: () => api("/auth/logout", { method: "POST" }),
 };

@@ -3,7 +3,10 @@ import { z } from "zod";
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().int().positive(),
-  FRONTEND_URL: z.string().url().default("https://tripticket.jgccorporatesolutions.com"),
+  FRONTEND_URL: z
+    .string()
+    .url()
+    .default("https://tripticket.jgccorporatesolutions.com"),
   FRONTEND_LAN_URL: z.string().url().optional().or(z.literal("")),
   JWT_SECRET: z.string().min(24),
   JWT_EXPIRES_IN: z.string().default("1d"),
@@ -12,7 +15,12 @@ const schema = z.object({
   GPS_INACTIVE_TIMEOUT_MS: z.coerce.number().int().min(120000).default(180000),
   GPS_TRAIL_MIN_METERS: z.coerce.number().positive().default(15),
   EMB_ESP32_TIMEOUT_MS: z.coerce.number().int().positive().default(65000),
-  EMB_ESP32_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
+  EMB_ESP32_HEARTBEAT_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15000),
   EMB_ESP32_API_KEY: z.string().default(""),
+  EMB_RECEIPT_PRINTER: z.string().default(""),
 });
 export const ENV = schema.parse(process.env);

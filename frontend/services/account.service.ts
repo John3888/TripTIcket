@@ -6,7 +6,12 @@ export interface RegistryInput {
   firstName: string;
   middleName: string;
   surname: string;
-  role: "Employee" | "Department Head" | "HR Head" | "Finance Head" | "Administrator";
+  role:
+    | "Employee"
+    | "Department Head"
+    | "HR Head"
+    | "Finance Head"
+    | "Administrator";
   department: Department;
 }
 export type ExistingCardAssignment = {
@@ -28,11 +33,20 @@ export const accountService = {
       body: JSON.stringify({ session }),
     }),
   unassigned: () =>
-    api<{ ok: boolean; employees: ExistingCardAssignment[] }>("/account-registry/unassigned"),
+    api<{ ok: boolean; employees: ExistingCardAssignment[] }>(
+      "/account-registry/unassigned",
+    ),
   employees: () =>
-    api<{ ok: boolean; employees: ExistingCardAssignment[] }>("/account-registry/employees"),
+    api<{ ok: boolean; employees: ExistingCardAssignment[] }>(
+      "/account-registry/employees",
+    ),
   create: (data: Omit<RegistryInput, "uid">) =>
-    api<{ ok: boolean; email: string; password: string }>("/account-registry/accounts", {
+    api<{
+      ok: boolean;
+      email: string;
+      password: string;
+      credentialPrint?: import("./report.service").PrintResult;
+    }>("/account-registry/accounts", {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -41,16 +55,22 @@ export const accountService = {
       "/account-registry/assign",
       { method: "POST", body: JSON.stringify({ uid, employeeId }) },
     ),
-  updateEmployee: (employeeId: string, data: Pick<RegistryInput, "role" | "department">) =>
+  updateEmployee: (
+    employeeId: string,
+    data: Pick<RegistryInput, "role" | "department">,
+  ) =>
     api<{ ok: boolean; employee: ExistingCardAssignment }>(
       `/account-registry/employees/${employeeId}`,
       { method: "PATCH", body: JSON.stringify(data) },
     ),
   register: (data: RegistryInput) =>
-    api<{ ok: boolean; account: unknown; email: string; password: string }>("/account-registry", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+    api<{ ok: boolean; account: unknown; email: string; password: string }>(
+      "/account-registry",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    ),
   email: (email: string) =>
     api<{ ok: boolean; email: string }>("/account/email", {
       method: "PATCH",
