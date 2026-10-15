@@ -22,5 +22,19 @@ const schema = z.object({
     .default(15000),
   EMB_ESP32_API_KEY: z.string().default(""),
   EMB_RECEIPT_PRINTER: z.string().default(""),
+  EMB_RECEIPT_HOST: z.string().default(""),
+  EMB_RECEIPT_PORT: z.coerce.number().int().min(1).max(65535).default(9100),
+  EMB_RECEIPT_WIDTH_DOTS: z.coerce
+    .number()
+    .int()
+    .min(384)
+    .max(832)
+    .multipleOf(8)
+    .default(576),
+  EMB_PRINT_BROWSER_PATH: z.string().default(""),
+  EMB_PRINT_NO_SANDBOX: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
 });
 export const ENV = schema.parse(process.env);

@@ -8,7 +8,6 @@ import {
 import { ScanModal } from "./ScanModal";
 import type { Department, ScanResult } from "@/types/trip-ticket";
 import { DEPARTMENTS, departmentLabel } from "@/app/(admin)/config/menu.config";
-import { printBrowserCredentials } from "@/services/thermal-print";
 
 type Employee = ExistingCardAssignment;
 const REGISTRY_TABS = [
@@ -110,15 +109,13 @@ export function AccountRegistry() {
       setView("assign");
       if (result.credentialPrint?.mode === "error")
         setError(`Account is already created. ${result.credentialPrint.error}`);
-      if (result.credentialPrint?.mode === "browser") {
-        try {
-          await printBrowserCredentials(result);
-        } catch (error) {
-          setError(
-            `Account is already created. ${error instanceof Error ? error.message : "Credential printing failed."}`,
-          );
-        }
-      }
+      if (
+        result.credentialPrint?.mode !== "direct" &&
+        result.credentialPrint?.mode !== "error"
+      )
+        setError(
+          "Account is already created. Direct credential printing is unavailable; restart the backend with the printer configured.",
+        );
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Account could not be created.",

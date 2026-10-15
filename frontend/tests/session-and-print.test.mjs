@@ -17,7 +17,6 @@ async function loadService(file) {
   );
 }
 const service = await loadService("../services/api.ts");
-const printing = await loadService("../services/thermal-print.ts");
 
 test("protected JSON requests signal session expiry and retain the 401 error", async () => {
   const originalFetch = globalThis.fetch;
@@ -101,89 +100,5 @@ test("session checks and CSV downloads signal expired cookies", () => {
     ]);
   } finally {
     delete globalThis.window;
-  }
-});
-
-test("thermal browser receipts preserve guard fields and escape ticket text", () => {
-  const receipt = {
-    ticketId: "TT-1",
-    employee: '<script>alert("x")</script>',
-    vehicle: "ABC-123",
-    destination: "Office & branch",
-  };
-  const guard = printing.receiptCopyHtml(receipt, true);
-  const requester = printing.receiptCopyHtml(receipt, false);
-  assert.match(guard, /size:80mm auto/);
-  assert.match(guard, /Guards' Copy/);
-  assert.match(guard, /Mileage Before:/);
-  assert.match(guard, /ABC-123/);
-  assert.match(guard, /&lt;script&gt;/);
-  assert.match(guard, /Office &amp; branch/);
-  assert.doesNotMatch(guard, /<script>/);
-  assert.match(requester, /Requester's Copy/);
-  assert.doesNotMatch(requester, /Mileage Before:|ABC-123/);
-});
-
-test("concurrent browser print requests keep each pair of copies in order", async () => {
-  const jobs = [];
-  const frames = [];
-  globalThis.window = {
-    setTimeout: (callback, delay) =>
-      setTimeout(callback, delay === 120000 ? 5000 : 0),
-    clearTimeout,
-  };
-  globalThis.document = {
-    body: { appendChild: () => undefined },
-    createElement: () => {
-      let html = "";
-      const win = {
-        document: {
-          open() {},
-          write(value) {
-            html = value;
-          },
-          close() {},
-        },
-        focus() {},
-        print() {
-          jobs.push(html);
-          queueMicrotask(() => win.onafterprint());
-        },
-        onafterprint: null,
-      };
-      const frame = {
-        style: {},
-        setAttribute() {},
-        contentWindow: win,
-        remove() {
-          frame.removed = true;
-        },
-      };
-      frames.push(frame);
-      return frame;
-    },
-  };
-  try {
-    const receipt = {
-      employee: "Juan",
-      vehicle: "ABC-123",
-      destination: "Office",
-    };
-    await Promise.all([
-      printing.printBrowserReceipt({ ...receipt, ticketId: "TT-1" }),
-      printing.printBrowserReceipt({ ...receipt, ticketId: "TT-2" }),
-    ]);
-    assert.equal(jobs.length, 4);
-    assert.match(jobs[0], /Guards' Copy/);
-    assert.match(jobs[1], /Requester's Copy/);
-    assert.match(jobs[2], /Guards' Copy/);
-    assert.match(jobs[3], /Requester's Copy/);
-    assert.ok(jobs.slice(0, 2).every((html) => html.includes("TT-1")));
-    assert.ok(jobs.slice(2).every((html) => html.includes("TT-2")));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.ok(frames.every((frame) => frame.removed));
-  } finally {
-    delete globalThis.window;
-    delete globalThis.document;
   }
 });

@@ -19,7 +19,6 @@ import { ticketService } from "@/services/ticket.service";
 import type { DeviceStatus, ScanResult, Ticket } from "@/types/trip-ticket";
 import { departmentLabel } from "@/app/(admin)/config/menu.config";
 import { TravelTime } from "./TravelTime";
-import { printBrowserReceipt } from "@/services/thermal-print";
 
 type Props = {
   open: boolean;
@@ -55,7 +54,7 @@ export function ScanModal({
   const closeRef = useRef(onClose);
   const scanStarted = useRef(false);
   const activeScan = useRef("");
-  const movementInFlight = useRef(false);
+  const movementInFlight = useRef("");
   const [recording, setRecording] = useState(false);
   const [recordedTicket, setRecordedTicket] = useState<Ticket | null>(null);
   useEffect(() => {
@@ -214,9 +213,9 @@ export function ScanModal({
     void scan();
   }, [open, registration, existing, movement]);
   const applyMovement = async (ticket: Ticket) => {
-    if (!movement || movementInFlight.current) return;
+    if (!movement || movementInFlight.current === session.current) return;
     const currentSession = session.current;
-    movementInFlight.current = true;
+    movementInFlight.current = currentSession;
     setRecording(true);
     setError("");
     try {
@@ -226,6 +225,10 @@ export function ScanModal({
         movement.result.rfidToken,
       );
       if (session.current !== currentSession) return;
+      // Only this scan owns the movement lock; older queued print jobs cannot
+      // prevent a later scan from recording arrival.
+      movementInFlight.current = "";
+      setRecording(false);
       setRecordedTicket(
         store.requests.find((record) => record.id === ticket.id) || null,
       );
@@ -235,20 +238,13 @@ export function ScanModal({
       if (store.departurePrint?.mode === "error")
         setError(store.departurePrint.error || "Receipt printing failed.");
       if (
-        store.departurePrint?.mode === "browser" &&
-        store.departurePrint.receipt
-      ) {
-        try {
-          await printBrowserReceipt(store.departurePrint.receipt);
-        } catch (error) {
-          if (session.current === currentSession)
-            setError(
-              error instanceof Error
-                ? error.message
-                : "Receipt printing failed.",
-            );
-        }
-      }
+        ticket.status === "approved" &&
+        store.departurePrint?.mode !== "direct" &&
+        store.departurePrint?.mode !== "error"
+      )
+        setError(
+          "Direct receipt printing is unavailable. Restart the backend with the printer configured.",
+        );
     } catch (e) {
       if (session.current === currentSession)
         setError(
@@ -257,8 +253,10 @@ export function ScanModal({
             : "The movement could not be recorded.",
         );
     } finally {
-      movementInFlight.current = false;
-      if (session.current === currentSession) setRecording(false);
+      if (movementInFlight.current === currentSession) {
+        movementInFlight.current = "";
+        if (session.current === currentSession) setRecording(false);
+      }
     }
   };
   if (!open) return null;

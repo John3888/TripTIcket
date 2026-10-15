@@ -19,7 +19,7 @@ export interface Receipt {
   approvedBy?: string | null;
 }
 export type PrintResult = {
-  mode: "browser" | "raw" | "error";
+  mode: "direct" | "error";
   receipt?: Receipt;
   error?: string;
 };

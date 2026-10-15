@@ -5,6 +5,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Exit codes let the API show a short setup message without exposing command output.
+try {
+  $printer = Get-Printer -ErrorAction Stop | Where-Object { $_.Name -eq $PrinterName }
+} catch {
+  exit 4
+}
+if (-not $printer) { exit 2 }
+
 Add-Type -TypeDefinition @"
 using System;
 using System.IO;
@@ -65,8 +73,7 @@ public class RawPrinterHelper {
 }
 "@
 
-Get-Printer -Name $PrinterName | Out-Null
 $bytes = [System.IO.File]::ReadAllBytes($DataPath)
 if (-not [RawPrinterHelper]::SendBytes($PrinterName, $bytes)) {
-  throw "Failed to send raw receipt data to printer: $PrinterName"
+  exit 3
 }

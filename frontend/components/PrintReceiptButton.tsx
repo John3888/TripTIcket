@@ -2,7 +2,6 @@
 import { Download, Printer } from "lucide-react";
 import { useState } from "react";
 import { reportService } from "@/services/report.service";
-import { printBrowserReceipt } from "@/services/thermal-print";
 export function DownloadReportButton() {
   return (
     <button
@@ -28,10 +27,11 @@ export function PrintReceiptButton({ ticketId }: { ticketId: string }) {
     setError("");
     try {
       const result = await reportService.print(ticketId);
-      if (result.mode === "browser" && result.receipt)
-        await printBrowserReceipt(result.receipt);
-      if (result.mode === "error")
-        throw new Error(result.error || "Receipt printing failed.");
+      if (result.mode !== "direct")
+        throw new Error(
+          result.error ||
+            "Direct receipt printing is unavailable. Restart the backend with the printer configured.",
+        );
     } catch (error) {
       setError(
         error instanceof Error

@@ -35,6 +35,9 @@ FROM node:24-bookworm-slim AS runner
 
 ENV NODE_ENV=production
 ENV PORT=8500
+ENV EMB_PRINT_BROWSER_PATH=/usr/bin/chromium
+ENV EMB_PRINT_NO_SANDBOX=true
+ENV HOME=/home/api
 
 WORKDIR /app
 
@@ -42,12 +45,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         openssl \
         ca-certificates \
+        chromium \
+        fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs api \
-    && mkdir -p /app/logs \
-    && chown -R api:nodejs /app
+    && mkdir -p /app/logs /home/api \
+    && chown -R api:nodejs /app /home/api
 
 COPY --from=builder --chown=api:nodejs /app/dist ./dist
 COPY --from=builder --chown=api:nodejs /app/scripts ./scripts
