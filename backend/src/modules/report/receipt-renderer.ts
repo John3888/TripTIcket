@@ -61,7 +61,18 @@ export async function renderReceiptCopies(
       const bounds = await receipt?.boundingBox();
       if (!bounds || bounds.height > 10000)
         throw new Error("Receipt is too long to print.");
-      const png = await page.screenshot({ type: "png", fullPage: true });
+      // Full-page screenshots cannot be shorter than the viewport. Clip to the
+      // actual slip so short requester copies do not inherit a 600-dot blank area.
+      const png = await page.screenshot({
+        type: "png",
+        clip: {
+          x: bounds.x,
+          y: bounds.y,
+          width,
+          height: Math.ceil(bounds.height),
+        },
+        captureBeyondViewport: true,
+      });
       copies.push(pngToEscPos(png, width));
     }
     return Buffer.concat(copies);

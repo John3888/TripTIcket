@@ -37,6 +37,7 @@ export function pngToEscPos(png: Uint8Array, expectedWidth: number) {
       raster,
     );
   }
-  commands.push(Buffer.from([0x1b, 0x64, 4, 0x1d, 0x56, 0]));
+  // Feed only to the cutter position, with zero additional margin (GS V 65 0).
+  commands.push(Buffer.from([0x1d, 0x56, 65, 0]));
   return Buffer.concat(commands);
 }

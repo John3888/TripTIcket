@@ -43,6 +43,8 @@ Jobs are serialized so transactions cannot interleave their receipt copies. Both
 
 Accepted spool/network data does not confirm physical paper output. Check the printer before retrying to avoid duplicate copies. Reprint trip slips from staff ticket details without recording departure again.
 
+Each slip is captured at its actual content height, so a short requester copy is shorter than the guard copy. The cutter uses `GS V 65 0` to feed only to its cutting position, without additional blank lines. A small gap remains because the print head and cutter are physically separated. See [Epson's feed-and-cut command](https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_cv.html).
+
 `npm test` in the backend checks template escaping, raster bytes, cuts, and an end-to-end Puppeteer job against a loopback test printer. The integration test also verifies recovery after a rendering failure and credential receipt output; it skips when Chrome/Chromium is not installed. No test sends data to the physical printer. Frontend tests cover arrival confirmation and session expiry.
 
 References: [Puppeteer screenshot API](https://pptr.dev/api/puppeteer.page.screenshot), [Puppeteer browser launch](https://pptr.dev/api/puppeteer.puppeteernode.launch), [Epson ESC/POS raster format](https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lv_0.html).

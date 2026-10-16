@@ -10,8 +10,8 @@ const escape = (value: string) =>
 function documentHtml(content: string, width: number) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     *{box-sizing:border-box;margin:0;padding:0}html,body{width:${width}px;background:#fff;color:#000}
-    main{width:${width}px;padding:16px 20px;font:24px/1.2 "Courier New",monospace;overflow-wrap:anywhere}
-    header{text-align:center;font-weight:bold;margin-bottom:24px}.row{margin:10px 0}
+    main{width:${width}px;padding:12px 20px 4px;font:24px/1.2 "Courier New",monospace;overflow-wrap:anywhere}
+    header{text-align:center;font-weight:bold;margin-bottom:16px}.row{margin:8px 0}
     .blank{display:flex;gap:16px;margin-top:28px}.line{flex:1;border-bottom:2px solid #000;height:28px}
     .notice{margin-top:24px}p{white-space:pre-wrap;margin:20px 0}
     </style></head><body><main>${content}</main></body></html>`;

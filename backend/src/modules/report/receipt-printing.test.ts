@@ -43,7 +43,7 @@ test("raster conversion encodes black pixels, preserves white padding and cuts o
     [0x1d, 0x76, 0x30, 0, 1, 0, 2, 0],
   );
   assert.deepEqual([...bytes.subarray(13, 15)], [128, 1]);
-  assert.deepEqual([...bytes.subarray(-6)], [0x1b, 0x64, 4, 0x1d, 0x56, 0]);
+  assert.deepEqual([...bytes.subarray(-4)], [0x1d, 0x56, 65, 0]);
   assert.throws(() => pngToEscPos(PNG.sync.write(image), 576), /dimensions/);
 });
 
@@ -59,11 +59,11 @@ test("long receipts use bounded raster strips without extra cuts", () => {
     [...bytes.subarray(141, 149)],
     [0x1d, 0x76, 0x30, 0, 1, 0, 1, 0],
   );
-  assert.equal(bytes.length, 156);
+  assert.equal(bytes.length, 154);
 });
 
 function parseCopies(bytes: Buffer) {
-  const copies: number[] = [];
+  const copies: { ink: number; height: number }[] = [];
   let offset = 0;
   while (offset < bytes.length) {
     assert.deepEqual(
@@ -72,22 +72,24 @@ function parseCopies(bytes: Buffer) {
     );
     offset += 5;
     let ink = 0;
+    let height = 0;
     while (bytes[offset] === 0x1d && bytes[offset + 1] === 0x76) {
       const rowBytes = bytes.readUInt16LE(offset + 4);
       const rows = bytes.readUInt16LE(offset + 6);
       assert.equal(rowBytes, 72);
       assert.ok(rows <= 128);
+      height += rows;
       offset += 8;
       for (const byte of bytes.subarray(offset, offset + rowBytes * rows))
         if (byte) ink++;
       offset += rowBytes * rows;
     }
     assert.deepEqual(
-      [...bytes.subarray(offset, offset + 6)],
-      [0x1b, 0x64, 4, 0x1d, 0x56, 0],
+      [...bytes.subarray(offset, offset + 4)],
+      [0x1d, 0x56, 65, 0],
     );
-    offset += 6;
-    copies.push(ink);
+    offset += 4;
+    copies.push({ ink, height });
   }
   return copies;
 }
@@ -145,10 +147,18 @@ test(
       assert.equal(received.length, 1);
       const copies = parseCopies(received[0]!);
       assert.equal(copies.length, 2);
-      assert.ok(copies.every((ink) => ink > 100));
+      assert.ok(copies.every((copy) => copy.ink > 100));
       assert.ok(
-        copies[0]! > copies[1]!,
+        copies[0]!.ink > copies[1]!.ink,
         "Guard copy includes vehicle and mileage fields",
+      );
+      assert.ok(
+        copies[1]!.height < 600,
+        "Short requester copy must not be padded to viewport height",
+      );
+      assert.ok(
+        copies[0]!.height > copies[1]!.height,
+        "Each copy uses its own content height",
       );
       assert.deepEqual(
         await printAccountCredentials({
