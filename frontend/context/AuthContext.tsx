@@ -37,7 +37,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const sessionUser = await authService.session();
       if (revision === sessionRevision.current) setUser(sessionUser);
       return sessionUser;
-      
     } catch (error) {
       if (
         revision === sessionRevision.current &&
