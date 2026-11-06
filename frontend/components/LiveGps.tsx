@@ -25,7 +25,7 @@ import type { GpsPoint, Ticket, TripTrack } from "@/types/trip-ticket";
 import { api } from "@/services/api";
 import { CompanyGpsMap, type CompanyGpsMapHandle } from "./maps/CompanyGpsMap";
 import { OverdueBadge } from "./TravelTime";
-import { applyHeartbeat, applyPosition, deviceActive, POSITION_STALE_MS, tripDevice, validPosition } from "./maps/live-trail";
+import { applyHeartbeat, applyPosition, deviceActive, liveFleet, POSITION_STALE_MS, restoreTrail, tripDevice, validPosition } from "./maps/live-trail";
 import {
   formatGpsTime,
   hasValidCoordinates,
@@ -171,7 +171,6 @@ export function LiveGps() {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const receivedGps = new Map<string, GpsPoint[]>();
     const heartbeats = new Map<string, { deviceId: string; vehicleId: string; lastSeenAt: string }>();
-    const completedTracks = new Map<string, { key: string; track: TripTrack }>();
     const refresh = async () => {
       if (disposed) return;
       if (fetching) {
@@ -183,32 +182,26 @@ export function LiveGps() {
       try {
         const store = await ticketService.store("live-gps");
         if (disposed) return;
-        const monitored = [...store.outgoing, ...store.history.filter((ticket) => ticket.status === "completed" && ticket.gps)].filter(
-          (ticket) => ticket.status === "ongoing" || ticket.gps,
-        );
+        const monitored = liveFleet([...store.outgoing, ...store.history]);
         // Publish accepted positions/liveness before optional reconstruction finishes.
         setTrips((current) => monitored.map((trip) => {
           const previous = current.find((item) => item.id === trip.id);
-          let next: Ticket = { ...trip, gps: latestGpsPoint(trip.gps, previous?.gps ?? undefined), track: previous?.track };
+          let next: Ticket = restoreTrail({ ...trip, gps: latestGpsPoint(trip.gps, previous?.gps ?? undefined), track: previous?.track });
           const device = tripDevice(next);
           const heartbeat = device && heartbeats.get(device.deviceId);
           if (heartbeat) next = applyHeartbeat(next, heartbeat);
           return next;
         }));
-        // Bound reconstruction concurrency; completed geometry is reused until
-        // its final point or arrival changes. No position/heartbeat calls this.
+        // Keep completed vehicle references; the map draws trails only for ongoing trips.
         const tracks: PromiseSettledResult<TripTrack>[] = [];
         let cursor = 0;
         await Promise.all(Array.from({ length: Math.min(4, monitored.length) }, async () => {
           while (!disposed && cursor < monitored.length) {
             const index = cursor++;
             const trip = monitored[index];
-            const key = `${trip.gps?.id ?? ""}:${trip.arrival ?? ""}`;
-            const cached = trip.status === "completed" ? completedTracks.get(trip.id) : undefined;
             try {
-              const track = cached?.key === key ? cached.track : await api<TripTrack>(`/gps/trips/${encodeURIComponent(trip.id)}/track`);
+              const track = await api<TripTrack>(`/gps/trips/${encodeURIComponent(trip.id)}/track`);
               tracks[index] = { status: "fulfilled", value: track };
-              if (trip.status === "completed") completedTracks.set(trip.id, { key, track });
             } catch (reason) { tracks[index] = { status: "rejected", reason }; }
           }
         }));
@@ -218,9 +211,9 @@ export function LiveGps() {
             const previous = current.find((item) => item.id === trip.id);
             const result = tracks[index];
             const track = result?.status === "fulfilled" ? result.value : previous?.track;
-            let next: Ticket = { ...trip, gps: result?.status === "fulfilled" ? track?.position ?? trip.gps : previous?.gps ?? trip.gps, track };
+            let next: Ticket = restoreTrail({ ...trip, gps: result?.status === "fulfilled" ? track?.position ?? trip.gps : previous?.gps ?? trip.gps, track });
             // Replay only deltas newer than the authoritative snapshot. Events
-            // received while HTTP/OSRM was pending must not be overwritten.
+            // received while the track request was pending must not be overwritten.
             for (const point of pendingPositions.get(trip.id) ?? []) next = applyPosition(next, point);
             const device = tripDevice(next);
             const heartbeat = device && heartbeats.get(device.deviceId);
@@ -299,7 +292,8 @@ export function LiveGps() {
     };
   }, []);
 
-  const reportingCount = trips.filter((trip) => hasValidCoordinates(trip.gps)).length;
+  const monitoredTrips = trips.filter((trip) => trip.status === "ongoing");
+  const reportingCount = monitoredTrips.filter((trip) => hasValidCoordinates(trip.gps)).length;
   const filteredGroups = locationGroups.map((group) => ({
     ...group,
     locations: group.locations.filter((location) =>
@@ -453,7 +447,7 @@ export function LiveGps() {
             onClick={() => setActivePanel("fleet")}
           >
             <Car aria-hidden="true" />
-            Fleet <span>{trips.length}</span>
+            Fleet <span>{monitoredTrips.length}</span>
             {error && <i className="gps-fleet-alert" aria-label="Fleet data unavailable" />}
           </button>
         </div>
@@ -565,7 +559,7 @@ export function LiveGps() {
                 <h2 id="fleet-heading">
                   {loading
                     ? "Connecting to fleet"
-                    : `${trips.length} monitored ${trips.length === 1 ? "trip" : "trips"}`}
+                    : `${monitoredTrips.length} monitored ${monitoredTrips.length === 1 ? "trip" : "trips"}`}
                 </h2>
               </div>
               <Radio aria-hidden="true" />
@@ -597,9 +591,9 @@ export function LiveGps() {
               <p className="gps-empty-copy" role="status">
                 Loading the latest vehicle check-ins…
               </p>
-            ) : trips.length ? (
+            ) : monitoredTrips.length ? (
               <ul className="gps-location-rows">
-                {trips.map((trip) => {
+                {monitoredTrips.map((trip) => {
                   const key = `vehicle:${trip.id}`;
                   const gps = hasValidCoordinates(trip.gps) ? trip.gps : null;
                   return (
@@ -616,9 +610,13 @@ export function LiveGps() {
                         </span>
                         <span className="gps-row-copy">
                           <b>{trip.plate}</b>
-                          <small>Trip {trip.id} · {trip.status === "completed" ? "Arrived — recording stopped" : "Departed — recording"}</small>
-                          <OverdueBadge ticket={trip} />
+                          <small>Trip {trip.id} · Departed — recording</small>
+                          {trip.status === "ongoing" && <OverdueBadge ticket={trip} />}
                           <span>{trip.destination}</span>
+                          <small>
+                            {deviceActive(tripDevice(trip), clock, trip.track?.inactiveTimeoutMs) ? "Device active" : "Device inactive"}
+                          </small>
+                          {gps && trip.status === "ongoing" && trip.track?.moving === false && <small>Stationary · Trail paused</small>}
                           {gps ? (
                             <>
                               <span className="gps-coordinate-text">
@@ -630,7 +628,6 @@ export function LiveGps() {
                               </small>
                               {!!trip.track?.estimatedDistanceMeters && <small>{(trip.track.estimatedDistanceMeters / 1000).toFixed(2)} km estimated</small>}
                               <small>
-                                {deviceActive(tripDevice(trip), clock, trip.track?.inactiveTimeoutMs) ? "Device active · " : "Device inactive · Last known position · "}
                                 {clock - Date.parse(gps.recordedAt) > POSITION_STALE_MS ? "Last accepted position is over 2 minutes old · " : ""}
                                 {trip.track?.matching === "matched" && trip.track.position?.id === gps.id ? "Path road matched · Accepted GPS position" : "Accepted GPS position"}
                               </small>
@@ -649,8 +646,8 @@ export function LiveGps() {
               !error && (
                 <div className="gps-empty-fleet">
                   <Car />
-                  <b>No active trips</b>
-                  <p>Vehicle markers appear when an active trip sends its first GPS position.</p>
+                  <b>No ongoing trips</b>
+                  <p>Last-known vehicle markers remain on the map for reference.</p>
                 </div>
               )
             )}

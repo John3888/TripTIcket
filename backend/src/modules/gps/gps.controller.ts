@@ -7,5 +7,10 @@ export const record: RequestHandler = async (req, res) => {
     res.status(403).json({ ok: false, error: "GPS device is not authorized." });
     return;
   }
-  res.json(await s.record(req.body));
+console.log("Content-Type:", req.headers["content-type"]);
+console.log("Body type:", typeof req.body);
+console.log("Body keys:", Object.keys(req.body ?? {}));
+
+res.json(await s.record(req.body));
+  
 };

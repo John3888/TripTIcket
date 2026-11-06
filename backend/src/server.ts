@@ -10,10 +10,21 @@ import { optionalAuth } from "./middlewares/auth.middleware.js";
 import { canAccessStaffPage } from "./config/access-policy.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import { setRealtime } from "./realtime.js";
+import { prisma } from "./config/prismaClient.js";
+import { attachGpsStream } from "./modules/gps/gps.stream.js";
+import { record as recordGps, touchDevice } from "./modules/gps/gps.services.js";
+import { saveDiagnostics } from "./modules/gps/gps.diagnostics.js";
 const app = express(),
   server = http.createServer(app);
 const origins = [ENV.FRONTEND_URL, ENV.FRONTEND_LAN_URL].filter(Boolean) as string[];
-const io = new Server(server, { cors: { origin: origins, credentials: true } });
+const io = new Server(server, { cors: { origin: origins, credentials: true }, destroyUpgrade: false });
+attachGpsStream(server, {
+  deviceKey: ENV.EMB_GPS_DEVICE_KEY,
+  authorizeDevice: async (deviceId) => !!(await prisma.trackingDevice.findUnique({ where: { deviceId } }))?.enabled,
+  record: recordGps,
+  presence: touchDevice,
+  diagnostics: saveDiagnostics,
+});
 setRealtime(io);
 app.use(cors({ origin: origins, credentials: true }));
 app.use(cookieParser());

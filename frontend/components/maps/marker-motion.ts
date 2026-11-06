@@ -37,7 +37,8 @@ export function animateMarker(marker: Marker, path: LatLngTuple[], duration: num
   const started = performance.now();
   const step = (now: number) => {
     const progress = Math.min(1, (now - started) / duration);
-    let remaining = total * progress;
+    const eased = progress * progress * (3 - 2 * progress);
+    let remaining = total * eased;
     let index = 0;
     while (index < lengths.length - 1 && remaining > lengths[index]) remaining -= lengths[index++];
     const t = Math.min(1, remaining / (lengths[index] || 1));

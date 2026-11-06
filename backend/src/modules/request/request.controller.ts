@@ -2,6 +2,8 @@ import type { RequestHandler } from "express";
 import * as service from "./request.services.js";
 import { kioskStore, publicStore } from "../store/store.services.js";
 import { emitNotification, emitStoreUpdated } from "../../realtime.js";
+import { receipt } from "../report/report.services.js";
+import { printThermalReceipt } from "../report/thermal-printer.js";
 export const create: RequestHandler = async (request, response) => {
   const createResult = await service.createTripRequest({
     ...request.body,
@@ -9,7 +11,10 @@ export const create: RequestHandler = async (request, response) => {
   });
   emitStoreUpdated();
   createResult.notifications.forEach(emitNotification);
-  response.json({ ...(await kioskStore()), createdRequest: createResult.request });
+  response.json({
+    ...(await kioskStore()),
+    createdRequest: createResult.request,
+  });
 };
 export const action: RequestHandler = async (request, response) => {
   const actionResult = await service.processTripRequestAction(
@@ -22,15 +27,37 @@ export const action: RequestHandler = async (request, response) => {
   );
   emitStoreUpdated();
   actionResult.notifications.forEach(emitNotification);
-  response.json(
-    request.auth && !["start", "complete"].includes(request.body.action)
+  // Print after the transaction commits. A printer failure must not undo departure.
+  let departurePrint;
+  if (request.body.action === "start") {
+    try {
+      const departureReceipt = await receipt(
+        actionResult.request.id,
+        undefined,
+      );
+      departurePrint = {
+        ...(await printThermalReceipt(departureReceipt)),
+        receipt: departureReceipt,
+      };
+    } catch (error) {
+      departurePrint = {
+        mode: "error",
+        error:
+          error instanceof Error ? error.message : "Receipt printing failed.",
+      };
+    }
+  }
+  response.json({
+    ...(request.auth && !["start", "complete"].includes(request.body.action)
       ? await publicStore({ actor: request.auth, page: "pending" })
-      : await kioskStore(),
-  );
+      : await kioskStore()),
+    departurePrint,
+  });
 };
 export const remove: RequestHandler = async (request, response) => {
   await service.deleteTripRequest(String(request.params.id));
   emitStoreUpdated();
-  if (!request.auth) throw new Error("Authenticated administrator context was not available.");
+  if (!request.auth)
+    throw new Error("Authenticated administrator context was not available.");
   response.json(await publicStore({ actor: request.auth, page: "pending" }));
 };

@@ -1,8 +1,19 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 "use client";
-import { ArrowRight, BadgeCheck, Check, CreditCard, Radio, ShieldCheck, X } from "lucide-react";
+import {
+  ArrowRight,
+  BadgeCheck,
+  Check,
+  CreditCard,
+  Radio,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { accountService, type ExistingCardAssignment } from "@/services/account.service";
+import {
+  accountService,
+  type ExistingCardAssignment,
+} from "@/services/account.service";
 import { rfidService } from "@/services/rfid.service";
 import { ticketService } from "@/services/ticket.service";
 import type { DeviceStatus, ScanResult, Ticket } from "@/types/trip-ticket";
@@ -43,7 +54,7 @@ export function ScanModal({
   const closeRef = useRef(onClose);
   const scanStarted = useRef(false);
   const activeScan = useRef("");
-  const movementInFlight = useRef(false);
+  const movementInFlight = useRef("");
   const [recording, setRecording] = useState(false);
   const [recordedTicket, setRecordedTicket] = useState<Ticket | null>(null);
   useEffect(() => {
@@ -52,7 +63,9 @@ export function ScanModal({
   useEffect(() => {
     if (!open) return;
     const previousFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const dialog = dialogRef.current;
@@ -141,7 +154,13 @@ export function ScanModal({
           type: "ticket",
           uid: result.uid,
           rfidToken: "",
-          employee: { employeeId: "", name: "", role: "", department: "OPERATIONS", status: "" },
+          employee: {
+            employeeId: "",
+            name: "",
+            role: "",
+            department: "OPERATIONS",
+            status: "",
+          },
           user: null,
         });
         onClose();
@@ -150,8 +169,14 @@ export function ScanModal({
       const result = await rfidService.scan(type, currentSession);
       if (session.current !== currentSession) return;
       if (!result.uid || !result.employee)
-        throw new Error("The reader returned an incomplete response. Please scan again.");
-      if (!result.employee.employeeId || !result.rfidToken || result.employee.status !== "ACTIVE")
+        throw new Error(
+          "The reader returned an incomplete response. Please scan again.",
+        );
+      if (
+        !result.employee.employeeId ||
+        !result.rfidToken ||
+        result.employee.status !== "ACTIVE"
+      )
         throw new Error(
           "This card is not registered to an active employee. Please contact an administrator.",
         );
@@ -162,7 +187,9 @@ export function ScanModal({
             "Movement tickets could not be loaded. Please restart the backend and scan again.",
           );
         if (!tickets.length) {
-          setError("No approved or ongoing trip ticket was found for this employee.");
+          setError(
+            "No approved or ongoing trip ticket was found for this employee.",
+          );
           return;
         }
         setMovement({ result, tickets });
@@ -172,7 +199,9 @@ export function ScanModal({
       onClose();
     } catch (e) {
       if (session.current === currentSession)
-        setError(e instanceof Error ? e.message : "The card could not be read.");
+        setError(
+          e instanceof Error ? e.message : "The card could not be read.",
+        );
     } finally {
       if (activeScan.current === currentSession) activeScan.current = "";
       if (session.current === currentSession) setScanning(false);
@@ -184,9 +213,9 @@ export function ScanModal({
     void scan();
   }, [open, registration, existing, movement]);
   const applyMovement = async (ticket: Ticket) => {
-    if (!movement || movementInFlight.current) return;
+    if (!movement || movementInFlight.current === session.current) return;
     const currentSession = session.current;
-    movementInFlight.current = true;
+    movementInFlight.current = currentSession;
     setRecording(true);
     setError("");
     try {
@@ -196,14 +225,38 @@ export function ScanModal({
         movement.result.rfidToken,
       );
       if (session.current !== currentSession) return;
-      setRecordedTicket(store.requests.find((record) => record.id === ticket.id) || null);
-      setDone(`${ticket.id} marked ${ticket.status === "approved" ? "departed" : "arrived"}.`);
+      // Only this scan owns the movement lock; older queued print jobs cannot
+      // prevent a later scan from recording arrival.
+      movementInFlight.current = "";
+      setRecording(false);
+      setRecordedTicket(
+        store.requests.find((record) => record.id === ticket.id) || null,
+      );
+      setDone(
+        `${ticket.id} marked ${ticket.status === "approved" ? "departed" : "arrived"}.`,
+      );
+      if (store.departurePrint?.mode === "error")
+        setError(store.departurePrint.error || "Receipt printing failed.");
+      if (
+        ticket.status === "approved" &&
+        store.departurePrint?.mode !== "direct" &&
+        store.departurePrint?.mode !== "error"
+      )
+        setError(
+          "Direct receipt printing is unavailable. Restart the backend with the printer configured.",
+        );
     } catch (e) {
       if (session.current === currentSession)
-        setError(e instanceof Error ? e.message : "The movement could not be recorded.");
+        setError(
+          e instanceof Error
+            ? e.message
+            : "The movement could not be recorded.",
+        );
     } finally {
-      movementInFlight.current = false;
-      if (session.current === currentSession) setRecording(false);
+      if (movementInFlight.current === currentSession) {
+        movementInFlight.current = "";
+        if (session.current === currentSession) setRecording(false);
+      }
     }
   };
   if (!open) return null;
@@ -217,7 +270,11 @@ export function ScanModal({
         aria-modal="true"
         aria-labelledby="scan-title"
       >
-        <button className="modal-close" onClick={onClose} aria-label="Cancel scan">
+        <button
+          className="modal-close"
+          onClick={onClose}
+          aria-label="Cancel scan"
+        >
           <X />
         </button>
         <div className="scan-brand">
@@ -234,19 +291,29 @@ export function ScanModal({
             Prepare
           </li>
           <li
-            className={existing || movement || done ? "is-complete" : "is-current"}
+            className={
+              existing || movement || done ? "is-complete" : "is-current"
+            }
             aria-current={!existing && !movement && !done ? "step" : undefined}
           >
             <span>
-              {existing || movement || done ? <Check size={14} aria-hidden="true" /> : "2"}
+              {existing || movement || done ? (
+                <Check size={14} aria-hidden="true" />
+              ) : (
+                "2"
+              )}
             </span>
             Scan card
           </li>
           <li
-            className={done || existing ? "is-complete" : movement ? "is-current" : ""}
+            className={
+              done || existing ? "is-complete" : movement ? "is-current" : ""
+            }
             aria-current={movement && !done ? "step" : undefined}
           >
-            <span>{done || existing ? <Check size={14} aria-hidden="true" /> : "3"}</span>
+            <span>
+              {done || existing ? <Check size={14} aria-hidden="true" /> : "3"}
+            </span>
             {done || existing ? "Confirmed" : "Confirm"}
           </li>
         </ol>
@@ -256,8 +323,8 @@ export function ScanModal({
             <p className="eyebrow">CARD ALREADY ASSIGNED</p>
             <h2 id="scan-title">Employee record found</h2>
             <p>
-              This card is already linked to an employee. Registration is locked to prevent an
-              accidental overwrite.
+              This card is already linked to an employee. Registration is locked
+              to prevent an accidental overwrite.
             </p>
             <div className="detail-grid">
               <div>
@@ -290,7 +357,11 @@ export function ScanModal({
             >
               Scan another card
             </button>
-            <button className="btn primary wide" onClick={onClose}>
+            <button
+              className="btn primary wide"
+              onClick={onClose}
+              disabled={recording}
+            >
               Done
             </button>
           </>
@@ -299,8 +370,18 @@ export function ScanModal({
             <BadgeCheck className="status-illustration" aria-hidden="true" />
             <h2 id="scan-title">Movement Recorded</h2>
             <p role="status">{done}</p>
+            {error && (
+              <p className="scan-message error" role="alert">
+                Departure is already saved. {error} Ask staff to reprint the
+                receipt if needed.
+              </p>
+            )}
             {recordedTicket && <TravelTime ticket={recordedTicket} />}
-            <button className="btn primary wide" onClick={onClose}>
+            <button
+              className="btn primary wide"
+              onClick={onClose}
+              disabled={recording}
+            >
               Done
             </button>
           </>
@@ -308,7 +389,10 @@ export function ScanModal({
           <>
             <p className="eyebrow">SELECT TRIP TICKET</p>
             <h2 id="scan-title">Confirm movement</h2>
-            <p>{movement.result.employee.name} has eligible tickets. Choose one to update.</p>
+            <p>
+              {movement.result.employee.name} has eligible tickets. Choose one
+              to update.
+            </p>
             <div className="movement-choices">
               {movement.tickets.map((t) => (
                 <button
@@ -320,7 +404,9 @@ export function ScanModal({
                   <span className="movement-choice-heading">
                     <b>{t.id}</b>
                     <span className="movement-choice-action">
-                      {t.status === "approved" ? "Record departure" : "Record arrival"}
+                      {t.status === "approved"
+                        ? "Record departure"
+                        : "Record arrival"}
                       <ArrowRight size={15} aria-hidden="true" />
                     </span>
                   </span>
@@ -367,8 +453,8 @@ export function ScanModal({
             <div className="scan-guidance">
               <CreditCard size={19} aria-hidden="true" />
               <p>
-                Place one employee ID flat over the reader and hold it still until the next screen
-                appears.
+                Place one employee ID flat over the reader and hold it still
+                until the next screen appears.
               </p>
             </div>
             {!status.connected && (
@@ -384,7 +470,11 @@ export function ScanModal({
               </span>
             </div>
             {error && (
-              <button className="btn primary wide" onClick={scan} disabled={scanning}>
+              <button
+                className="btn primary wide"
+                onClick={scan}
+                disabled={scanning}
+              >
                 Try reading the card again
               </button>
             )}

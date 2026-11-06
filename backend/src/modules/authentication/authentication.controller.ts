@@ -7,12 +7,13 @@ export const login: RequestHandler = async (req, res) => {
   httpOnly: true,
   sameSite: "lax",
   secure: process.env.NODE_ENV === "production",
-  maxAge: 86400000,
+  maxAge: 28800000,
   path: "/",
     })
     .json({ ok: true, user: result.user });
 };
-export const session: RequestHandler = (req, res) => res.json({ ok: true, user: req.auth });
+export const session: RequestHandler = (req, res) =>
+  res.setHeader("Cache-Control", "no-store").json({ ok: true, user: req.auth });
 export const logout: RequestHandler = (_req, res) => {
   res.clearCookie("EMB_TTR_SESSION").json({ ok: true });
 };

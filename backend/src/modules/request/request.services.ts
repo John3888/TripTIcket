@@ -91,6 +91,10 @@ export async function createTripRequest(requestInput: any) {
       data: { status: "STANDBY" },
     });
     if (!available.count) throw new AppError(409, "This vehicle is no longer on standby. Choose another vehicle.");
+    const ongoing = await databaseTransaction.tripRequest.findFirst({
+      where: { vehicleId: requestedVehicle.vehicleId, status: "ONGOING" }, select: { id: true },
+    });
+    if (ongoing) throw new AppError(409, "This vehicle is still in use on an ongoing trip.");
     const latestTripRequest = await databaseTransaction.tripRequest.findFirst({
       orderBy: { id: "desc" },
       select: { id: true },
@@ -132,6 +136,8 @@ export async function processTripRequestAction(
       ? getRfidRequestActor(actionInput.rfidToken)
       : authenticatedActor || getRfidRequestActor(actionInput.rfidToken);
   return prisma.$transaction(async (databaseTransaction) => {
+    // Serialize official start/close with GPS recording against this trip row.
+    if (isMovement) await databaseTransaction.$queryRaw`SELECT id FROM trip_requests WHERE id = ${tripRequestId} FOR UPDATE`;
     const tripRequest = await databaseTransaction.tripRequest.findUnique({
       where: { id: tripRequestId },
       include: { employee: { select: { department: true } } },
@@ -190,16 +196,21 @@ export async function processTripRequestAction(
         (actionInput.action === "complete" && tripRequest.status === "ONGOING"))
     ) {
       if (actionInput.action === "start") {
+        const ongoing = await databaseTransaction.tripRequest.findFirst({
+          where: { vehicleId: tripRequest.vehicleId, status: "ONGOING", id: { not: tripRequestId } }, select: { id: true },
+        });
+        if (ongoing) throw new AppError(409, "This vehicle is already in use on another trip.");
+        // Claim the free vehicle atomically so two approved requests cannot depart together.
+        const available = await databaseTransaction.vehicle.updateMany({
+          where: { vehicleId: tripRequest.vehicleId, status: "STANDBY" }, data: { status: "ON_TRIP" },
+        });
+        if (!available.count) throw new AppError(409, "This vehicle is no longer available. Finish its current trip first.");
         tripRequestUpdate = {
           status: "ONGOING",
           departedAt: actionTime,
           elapsedSeconds: 0,
           warned15: false,
         };
-        await databaseTransaction.vehicle.update({
-          where: { vehicleId: tripRequest.vehicleId },
-          data: { status: "ON_TRIP" },
-        });
         await createNotification(
           databaseTransaction,
           pendingNotifications,

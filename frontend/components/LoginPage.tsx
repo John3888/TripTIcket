@@ -41,16 +41,15 @@ export function LoginPage() {
           Trip Ticket Request & Management System
         </h1>
         <p>
-          One controlled workspace for reviewing travel, tracking active trips, and keeping every
-          approval accountable.
+          Trip Ticket Request and approval made easy for employees and department heads. Request, approve, and track trips with ease.
         </p>
-        <div className="login-seal">
+        {/* <div className="login-seal">
           <ShieldCheck />
           <span>
             <b>Authorized personnel only</b>
             <small>Access and approvals are recorded for operational accountability.</small>
           </span>
-        </div>
+        </div> */}
       </section>
       <section className="login-panel">
         <form onSubmit={submit}>

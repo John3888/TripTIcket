@@ -3,7 +3,22 @@ node_modules/
 dist/
 .env
 *.log
-gps_firmware/
+# Track GPS firmware sources so fixes survive branch changes. Keep per-device
+# credentials and generated/archived build output local.
+gps_firmware/**
+!gps_firmware/*.md
+!gps_firmware/*.pem
+!gps_firmware/tests/
+gps_firmware/tests/**
+!gps_firmware/tests/*.cpp
+!gps_firmware/tests/*.cmd
+!gps_firmware/esp32_gps/
+gps_firmware/esp32_gps/**
+!gps_firmware/esp32_gps/*.ino
+!gps_firmware/esp32_gps/*.h
+gps_firmware/esp32_gps/config.h
+gps_firmware/esp32_gps/debug.private.h
+gps_firmware/build/
 RFID/
 osrm/
 .prettierignore

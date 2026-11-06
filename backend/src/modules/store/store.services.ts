@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prismaClient.js";
+import { ENV } from "../../config/env.js";
 import type { StaffPage } from "../../config/access-policy.js";
 import { getApprovalActions } from "../request/request.approval-policy.js";
 import { tripTiming } from "../request/request.timing.js";
@@ -100,6 +101,7 @@ export async function publicStore({ actor, page }: StoreOptions) {
       decisionStatus: r.decisionStatus || "",
       ...tripTiming(r),
       gps: includeGps ? gpsTrail.at(-1) || null : null,
+      ...(includeGps ? { gpsMaxSpeedKph: ENV.GPS_MAX_SPEED_KPH } : {}),
       ...(includeGps ? { device: r.vehicle.trackingDevice ? {
         deviceId: r.vehicle.trackingDevice.deviceId, vehicleId: r.vehicleId,
         enabled: r.vehicle.trackingDevice.enabled,

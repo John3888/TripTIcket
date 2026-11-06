@@ -11,6 +11,7 @@ import { Car } from "lucide-react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { animateMarker, motionPath } from "./marker-motion";
 import { deviceActive, tripDevice } from "./live-trail";
+import { drawTrail, extendTrail, type TrailDrawing } from "./trail-layer";
 
 const DEFAULT_CENTER: Leaflet.LatLngTuple = [10.662087, 122.951214];
 const OVERVIEW_ZOOM = 17;
@@ -129,7 +130,8 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
   const staticMarkers = useRef(new Map<string, Leaflet.Marker>());
   const vehicleMarkers = useRef(new Map<string, Leaflet.Marker>());
   const motion = useRef(new Map<string, { target: string; cancel: () => void; time: number }>());
-  const trails = useRef(new Map<string, { segments: NonNullable<Ticket["track"]>["segments"]; layer: Leaflet.LayerGroup }>());
+  const trails = useRef(new Map<string, { segments: NonNullable<Ticket["track"]>["segments"]; layer: Leaflet.LayerGroup; drawings: TrailDrawing[] }>());
+  const trailRenderer = useRef<{ map: Leaflet.Map; renderer: Leaflet.Renderer } | null>(null);
   const markerData = useRef(new Map<string, Ticket>());
   const tripBounds = useRef(new Map<string, Leaflet.LatLngBounds>());
   const selectedMarker = useRef<string | null>(null);
@@ -321,25 +323,29 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
     const map = readyMap;
     const L = leafletRef.current;
     if (!map || map !== mapRef.current || !L) return;
-    const ids = new Set(trips.map((trip) => trip.id));
+    const ids = new Set(trips.filter((trip) => trip.status === "ongoing").map((trip) => trip.id));
     trails.current.forEach((item, id) => {
       if (!ids.has(id)) { item.layer.remove(); trails.current.delete(id); tripBounds.current.delete(`vehicle:${id}`); }
     });
     trips.forEach((trip) => {
+      if (trip.status !== "ongoing") return;
       const segments = trip.track?.segments;
       const previous = trails.current.get(trip.id);
       if (!segments || previous?.segments === segments) return;
-      previous?.layer.remove();
-      const layer = L.layerGroup().addTo(map);
+      const layer = previous?.layer ?? L.layerGroup().addTo(map);
       const bounds = L.latLngBounds([]);
-      segments.forEach((segment) => {
-        segment.coordinates.forEach(([lng, lat]) => bounds.extend([lat, lng]));
-        L.polyline(segment.coordinates.map(([lng, lat]) => [lat, lng] as Leaflet.LatLngTuple), {
-          color: segment.estimated ? "#b7791f" : "#168253", weight: 5, opacity: 0.9,
-          dashArray: segment.estimated ? "8 6" : undefined,
-        }).bindTooltip(textElement("span", `${trip.plate} · Trip ${trip.id} · ${segment.estimated ? "Estimated" : "Road matched"} ${(segment.distanceMeters / 1000).toFixed(2)} km`)).addTo(layer);
-      });
-      trails.current.set(trip.id, { segments, layer });
+      if (!map.getPane("gps-trails")) {
+        const pane = map.createPane("gps-trails");
+        pane.style.zIndex = "450";
+      }
+      // Canvas avoids inherited SVG styles hiding the line or breadcrumb dots.
+      if (trailRenderer.current?.map !== map) trailRenderer.current = { map, renderer: L.canvas({ pane: "gps-trails" }) };
+      const renderer = trailRenderer.current.renderer;
+      segments.forEach((segment) => segment.coordinates.forEach(([lng, lat]) => bounds.extend([lat, lng])));
+      const label = (text: string) => textElement("span", `${trip.plate} · Trip ${trip.id} · ${text}`);
+      let drawings = previous?.drawings ? extendTrail(L, layer, renderer, previous.drawings, segments, label) : null;
+      if (!drawings) { layer.clearLayers(); drawings = drawTrail(L, layer, renderer, segments, label); }
+      trails.current.set(trip.id, { segments, layer, drawings });
       tripBounds.current.delete(`vehicle:${trip.id}`);
       if (bounds.isValid()) tripBounds.current.set(`vehicle:${trip.id}`, bounds);
     });
@@ -350,8 +356,7 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
     const L = leafletRef.current;
     if (!map || map !== mapRef.current || !L) return;
     const visibleIds = new Set<string>();
-    // Completed trip paths remain selectable, but only the newest accepted
-    // position for a tracker creates a vehicle marker.
+    // Keep completed vehicles as last-known-position references; only their trails end.
     const latest = new Map<string, Ticket>();
     trips.forEach((trip) => {
       if (!hasValidCoordinates(trip.gps)) return;
@@ -381,6 +386,8 @@ export const CompanyGpsMap = forwardRef<CompanyGpsMapHandle, Props>(function Com
           const cancel = canAnimate ? animateMarker(existing, path, Math.max(500, Math.min(4500, elapsed || 1000))) : () => {};
           if (!canAnimate) existing.setLatLng(end);
           motion.current.set(key, { target, cancel, time: Date.parse(trip.gps.recordedAt) });
+        } else if (previous) {
+          motion.current.set(key, { ...previous, time: Date.parse(trip.gps.recordedAt) });
         }
         existing.setPopupContent(vehiclePopup(trip));
       } else {

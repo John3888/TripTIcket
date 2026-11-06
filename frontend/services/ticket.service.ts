@@ -11,18 +11,29 @@ export interface CreateTicket {
   rfidToken: string;
 }
 export type StaffStorePage =
-  "pending" | "outgoing" | "history" | "live-gps" | "settings" | "account-registry";
-const normalizePublicStore = (partialStore: Partial<PublicStore>): PublicStore => {
+  | "pending"
+  | "outgoing"
+  | "history"
+  | "live-gps"
+  | "settings"
+  | "account-registry";
+const normalizePublicStore = (
+  partialStore: Partial<PublicStore>,
+): PublicStore => {
   const receivedAt = Date.now();
   const requests = receiveTicketTiming(
     Array.isArray(partialStore.requests) ? partialStore.requests : [],
     receivedAt,
   );
   return {
-    employees: Array.isArray(partialStore.employees) ? partialStore.employees : [],
+    employees: Array.isArray(partialStore.employees)
+      ? partialStore.employees
+      : [],
     vehicles: Array.isArray(partialStore.vehicles) ? partialStore.vehicles : [],
     users: Array.isArray(partialStore.users) ? partialStore.users : [],
-    notifications: Array.isArray(partialStore.notifications) ? partialStore.notifications : [],
+    notifications: Array.isArray(partialStore.notifications)
+      ? partialStore.notifications
+      : [],
     requests,
     pending: Array.isArray(partialStore.pending)
       ? receiveTicketTiming(partialStore.pending, receivedAt)
@@ -35,22 +46,32 @@ const normalizePublicStore = (partialStore: Partial<PublicStore>): PublicStore =
       : requests.filter((r) => ["completed", "denied"].includes(r.status)),
     updatedAt: String(partialStore.updatedAt || ""),
     createdRequest: partialStore.createdRequest,
+    departurePrint: partialStore.departurePrint,
   };
 };
 export const ticketService = {
   store: async (page: StaffStorePage = "pending") =>
-    normalizePublicStore(await api<Partial<PublicStore>>(`/store?page=${page}`)),
-  kioskStore: async () => normalizePublicStore(await api<Partial<PublicStore>>("/store/kiosk")),
+    normalizePublicStore(
+      await api<Partial<PublicStore>>(`/store?page=${page}`),
+    ),
+  kioskStore: async () =>
+    normalizePublicStore(await api<Partial<PublicStore>>("/store/kiosk")),
   create: async (ticketInput: CreateTicket) =>
     normalizePublicStore(
       await api<Partial<PublicStore>>("/request", {
+        sessionRequired: false,
         method: "POST",
         body: JSON.stringify(ticketInput),
       }),
     ),
-  action: async (ticketId: string, requestedAction: string, rfidToken?: string | User) =>
+  action: async (
+    ticketId: string,
+    requestedAction: string,
+    rfidToken?: string | User,
+  ) =>
     normalizePublicStore(
       await api<Partial<PublicStore>>(`/request/${ticketId}/action`, {
+        sessionRequired: typeof rfidToken !== "string",
         method: "POST",
         body: JSON.stringify({
           action: requestedAction,
@@ -60,6 +81,8 @@ export const ticketService = {
     ),
   remove: async (ticketId: string) =>
     normalizePublicStore(
-      await api<Partial<PublicStore>>(`/request/${ticketId}`, { method: "DELETE" }),
+      await api<Partial<PublicStore>>(`/request/${ticketId}`, {
+        method: "DELETE",
+      }),
     ),
 };

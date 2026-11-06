@@ -1,8 +1,31 @@
 import { prisma } from "../../config/prismaClient.js";
 import { AppError } from "../../middlewares/error.middleware.js";
 import { emitGpsHeartbeat, emitGpsPosition } from "../../realtime.js";
-import { filterFix, signalQuality } from "./gps.filter.js";
-const GPS_MIN_REPORT_MS = 1000;
+import { filterFix } from "./gps.filter.js";
+import { ENV } from "../../config/env.js";
+
+export async function touchDevice(deviceId: string) {
+  const result = await prisma.$transaction(async (db) => {
+    // Use the same lock as telemetry/assignment updates to report the right vehicle.
+    await db.$queryRaw`SELECT device_id FROM tracking_devices WHERE device_id = ${deviceId} FOR UPDATE`;
+    const device = await db.trackingDevice.findUnique({ where: { deviceId } });
+    if (!device?.enabled) return null;
+    const now = new Date();
+    await db.trackingDevice.update({ where: { deviceId }, data: { lastSeenAt: now } });
+    const viewers = await db.tripRequest.findMany({
+      where: { vehicleId: device.vehicleId, status: { in: ["ONGOING", "COMPLETED"] } },
+      distinct: ["employeeId"], select: { employee: { select: { department: true } } },
+    });
+    return {
+      heartbeat: { deviceId, vehicleId: device.vehicleId, lastSeenAt: now.toISOString() },
+      departments: [...new Set(viewers.map((trip) => trip.employee.department))],
+    };
+  }, { isolationLevel: "ReadCommitted" });
+  if (!result) return false;
+  emitGpsHeartbeat(result.heartbeat, result.departments);
+  return true;
+}
+
 export async function record(body: any) {
   if (!body.deviceId) throw new AppError(400, "A registered device ID is required.");
   const result = await prisma.$transaction(async (db) => {
@@ -11,35 +34,28 @@ export async function record(body: any) {
   const device = await db.trackingDevice.findUnique({ where: { deviceId: body.deviceId } });
   if (!device?.enabled) throw new AppError(403, "GPS device is not registered or is disabled.");
   const now = new Date();
-  // The device row lock makes this safety limit work across server workers.
-  if (device.lastSeenAt && now.getTime() - device.lastSeenAt.getTime() < GPS_MIN_REPORT_MS)
-    throw new AppError(429, "GPS reports must be spaced at least one second apart.");
   await db.trackingDevice.update({ where: { deviceId: device.deviceId }, data: { lastSeenAt: now } });
   await db.$queryRaw`SELECT id FROM trip_requests WHERE vehicle_id = ${device.vehicleId} AND status = 'ONGOING' FOR UPDATE`;
   const trip = await db.tripRequest.findFirst({
     where: {
       status: "ONGOING",
+      arrivedAt: null,
       vehicleId: device.vehicleId,
     },
     orderBy: { departedAt: "desc" },
     include: { employee: { select: { department: true } } },
   });
   const recordedAt = body.recordedAt || now;
-  const accuracy = body.accuracyMeters ?? (body.hdop == null ? 15 : Math.max(5, body.hdop * 5));
+  const accuracy = Math.max(5, body.accuracyMeters ?? (body.hdop > 0 ? body.hdop * 5 : 25));
   const speed = body.speedKph ?? body.speedKmph ?? null;
   const previous = trip ? await db.gpsPoint.findFirst({ where: { tripRequestId: trip.id, deviceId: body.deviceId, filterVersion: 1 }, orderBy: { recordedAt: "desc" } }) : null;
-  const lastReport = await db.deviceTelemetry.findFirst({ where: { deviceId: device.deviceId }, orderBy: { receivedAt: "desc" } });
-  const quality = signalQuality(body);
-  const recovering = lastReport && ["no_fix", "poor_satellites", "poor_hdop", "poor_accuracy"].includes(lastReport.disposition);
   const filtered = body.hasFix === false ? { reason: "no_fix", state: null }
-    : !trip ? { reason: "no_active_trip", state: null }
+    : !trip || !trip.departedAt ? { reason: "no_active_trip", state: null }
     : recordedAt.getTime() > now.getTime() + 30000 || (trip.departedAt && recordedAt < trip.departedAt) ? { reason: "invalid_time", state: null }
-    : quality ? { reason: quality, state: null }
-    : recovering ? { reason: "confirming_signal", state: null }
-    : filterFix({ latitude: body.latitude, longitude: body.longitude, recordedAt, accuracyMeters: accuracy, speedKph: speed }, previous ? {
+    : filterFix({ latitude: body.latitude, longitude: body.longitude, recordedAt, accuracyMeters: accuracy, speedKph: speed, motion: body.motion, hdop: body.hdop, satellites: body.satellites, gnssFixOk: body.gnssFixOk, fixType: body.fixType, speedAccuracyKph: body.speedAccuracyKph }, previous ? {
       latitude: Number(previous.latitude), longitude: Number(previous.longitude), recordedAt: previous.recordedAt,
       accuracyMeters: Number(previous.accuracyMeters ?? 15), speedKph: previous.speedKph == null ? null : Number(previous.speedKph), variance: previous.filterVariance ?? 225,
-    } : null);
+    } : null, ENV.GPS_MAX_SPEED_KPH);
   await db.deviceTelemetry.create({ data: {
     deviceId: device.deviceId, tripRequestId: trip?.id, recordedAt,
     hasFix: body.hasFix !== false, latitude: body.latitude, longitude: body.longitude,
@@ -77,6 +93,7 @@ export async function record(body: any) {
     speedKph: gps.speedKph === null ? null : Number(gps.speedKph),
     heading: gps.heading === null ? null : Number(gps.heading),
     accuracyMeters: gps.accuracyMeters === null ? null : Number(gps.accuracyMeters),
+    motion: body.motion ?? "unknown",
     recordedAt: gps.recordedAt.toISOString(),
   };
   return { ok: true, recorded: true, ticketNo: trip.id, department: trip.employee?.department, gps: { ...position, tripRequestId: trip.id }, heartbeat, heartbeatDepartments };
