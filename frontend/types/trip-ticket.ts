@@ -65,6 +65,7 @@ export interface Ticket {
   decisionBy?: string | null;
   gps?: GpsPoint | null;
   gpsTrail?: GpsPoint[];
+  gpsMaxSpeedKph?: number;
   track?: TripTrack;
   device?: GpsDevice | null;
 }
@@ -75,6 +76,12 @@ export interface GpsDevice {
   lastSeenAt: string | null;
 }
 export interface TripTrack {
+  motionState?: {
+    anchor: GpsPoint; lastObservedAt: string; moving: boolean; stoppedSamples: number; candidates: GpsPoint[];
+    interrupted?: boolean;
+  };
+  maxSpeedKph?: number;
+  moving?: boolean;
   ticketId: string;
   segments: {
     coordinates: number[][];
@@ -99,6 +106,7 @@ export interface TripTrack {
   sampleCount: number;
 }
 export interface GpsPoint {
+  motion?: "stationary" | "moving" | "unknown";
   id: string;
   deviceId?: string | null;
   latitude: number;

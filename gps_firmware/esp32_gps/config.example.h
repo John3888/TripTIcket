@@ -1,4 +1,5 @@
 #pragma once
+#define TRACKER_MAX_SPEED_KPH 200 // Vehicle profile; 10 for a controlled walking test.
 constexpr char DEVICE_ID[] = "GPS-EMB-024";
 constexpr char DEVICE_KEY[] = "";
 constexpr char API_URL[] = "https://tripticket.jgccorporatesolutions.com/api/gps/position";
@@ -25,5 +26,5 @@ constexpr double REPORT_DISTANCE_M = 80, REPORT_TURN_DEG = 25;
 
 // Independent of Wi-Fi/cellular; applies to position and diagnostics uploads.
 #ifndef TRACKER_USE_HTTPS
-#define TRACKER_USE_HTTPS 1 // 0 = HTTP, 1 = HTTPS
+#define TRACKER_USE_HTTPS 1 // 0 = WS, 1 = WSS; API_URL still uses http(s)://host/api/gps/position
 #endif

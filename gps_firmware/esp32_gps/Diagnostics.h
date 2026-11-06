@@ -51,7 +51,25 @@ void captureDiagnostics(uint32_t now,bool hasFix,bool receiving) {
   static DiagnosticSnapshot snapshot;
   JsonDocument doc;
   doc["deviceId"]=DEVICE_ID; doc["uptimeMs"]=now;
-  doc["gps"]["status"]=!receiving ? "NO UART DATA" : hasFix ? filter.status : "WAITING FOR USABLE FIX";
+  doc["firmware"]=FIRMWARE_VERSION;
+  doc["gps"]["rawRmc"]=rawNmea.rmc; doc["gps"]["rawGga"]=rawNmea.gga;
+  doc["gps"]["checksumErrors"]=gps.failedChecksum();
+  doc["gps"]["charactersProcessed"]=gps.charsProcessed();
+  doc["gps"]["maxSpeedKph"]=filter.maxSpeedKph;
+  doc["gps"]["ubxAvailable"]=ublox.fresh(now);
+  doc["gps"]["ubxFrames"]=ublox.frames; doc["gps"]["ubxChecksumErrors"]=ublox.checksumErrors;
+  if (ublox.fresh(now)) {
+    doc["gps"]["receiverHorizontalAccuracyMeters"]=ublox.horizontalAccuracy;
+    doc["gps"]["receiverSpeedAccuracyKph"]=ublox.speedAccuracy*3.6;
+    doc["gps"]["ubxSpeedKph"]=ublox.speedKph; doc["gps"]["ubxFixOk"]=ublox.fixOk;
+    doc["gps"]["ubxFixType"]=ublox.fixType;
+    doc["gps"]["ubxLatitude"]=ublox.latitude; doc["gps"]["ubxLongitude"]=ublox.longitude;
+  }
+  if (gps.location.isValid() && gps.location.age()<5000) {
+    doc["gps"]["receiverLatitude"]=gps.location.lat(); doc["gps"]["receiverLongitude"]=gps.location.lng();
+  }
+  if (gps.speed.isValid() && gps.speed.age()<5000) doc["gps"]["receiverSpeedKph"]=gps.speed.kmph();
+  doc["gps"]["status"]=!receiving ? "NO UART DATA" : !gps.location.isValid() || gps.location.age()>=5000 ? "WAITING FOR RECEIVER FIX" : filter.status;
   doc["gps"]["hasFix"]=hasFix;
   doc["gps"]["latitude"]=nullptr; doc["gps"]["longitude"]=nullptr; doc["gps"]["speedKph"]=nullptr;
   if (hasFix) { doc["gps"]["latitude"]=filter.lat; doc["gps"]["longitude"]=filter.lng; if (gps.speed.isValid() && gps.speed.age()<5000) doc["gps"]["speedKph"]=gps.speed.kmph(); }
@@ -60,13 +78,18 @@ void captureDiagnostics(uint32_t now,bool hasFix,bool receiving) {
   if (gps.hdop.isValid() && gps.hdop.age()<3000) doc["gps"]["hdop"]=gps.hdop.hdop();
   doc["mpu"]["model"]=imu.modelName(); doc["mpu"]["status"]=imu.status;
   doc["mpu"]["healthy"]=imu.healthy; doc["mpu"]["quiet"]=imu.quiet; doc["mpu"]["dynamic"]=imu.dynamic;
+  doc["mpu"]["calibrated"]=imu.isCalibrated();
   doc["network"]["mode"]=TRACKER_USE_WIFI ? "wifi" : "cellular";
   doc["network"]["gsm"]=lteStatus.load(); doc["network"]["wifi"]=wifiStatus.load();
+  doc["network"]["positionTransport"]="websocket";
+  doc["network"]["websocketConnected"]=websocketConnected.load();
+  doc["network"]["websocketCode"]=websocketCode.load();
+  doc["network"]["websocketAcks"]=websocketAcks.load();
   doc["network"]["backend"]=backendStatus.load(); doc["network"]["http"]=lastHttpCode.load(); doc["network"]["tls"]=lastTlsCode.load();
   doc["network"]["requestMs"]=lastRequestMs.load(); doc["network"]["payloadBytes"]=lastPayloadBytes.load();
   doc["network"]["diagnosticsHttp"]=diagnosticHttp.load();
   doc["network"]["effectiveUploadBps"]=nullptr;
-  if (lastHttpCode.load()>=200 && lastHttpCode.load()<300 && lastRequestMs.load()>0)
+  if (websocketCode.load()==200 && lastRequestMs.load()>0)
     doc["network"]["effectiveUploadBps"]=double(lastPayloadBytes.load())*8000.0/lastRequestMs.load();
   doc["network"]["wifiRssi"]=nullptr;
   if (wifiRssi.load()!=-127) doc["network"]["wifiRssi"]=wifiRssi.load();
@@ -145,7 +168,7 @@ poll();
     if (!allowed()) return;
     JsonDocument health;
     health["firmware"]=FIRMWARE_VERSION; health["endpoint"]=apiEndpoint();
-    health["protocol"]=TRACKER_USE_HTTPS ? "HTTPS" : "HTTP";
+    health["protocol"]=TRACKER_USE_HTTPS ? "WSS" : "WS";
     // Filter status is in the loop's snapshot; do not read mutable filter state here.
     health["transport"]=TRACKER_USE_WIFI ? "wifi" : "cellular";
     health["uptimeMs"]=millis(); health["resetReason"]=diagnosticResetReason();
@@ -158,22 +181,4 @@ poll();
   });
   server.begin();
   for (;;) { server.handleClient(); delay(5); }
-}
-
-void uploadDiagnostics() {
-  // Network task only; TLS also needs stack space while this buffer is in use.
-  static DiagnosticSnapshot snapshot;
-  if (xQueuePeek(diagnosticSnapshots,&snapshot,0)!=pdTRUE) return;
-  String url=apiEndpoint(); url=url.substring(0,url.lastIndexOf('/'))+"/diagnostics";
-  TrackerHttpsClient tls; tls.setCACert(ROOT_CA); tls.setHandshakeTimeout(30);
-  static const char* protocols[]={"http/1.1",nullptr}; tls.setAlpnProtocols(protocols);
-  NetworkClient plain;
-  NetworkClient& client=TRACKER_USE_HTTPS ? static_cast<NetworkClient&>(tls) : plain;
-  HTTPClient http; http.setConnectTimeout(TRACKER_USE_WIFI ? 10000 : 30000); http.setTimeout(15000); http.setReuse(false);
-  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  if (!http.begin(client,url)) return;
-  http.addHeader("Content-Type","application/json"); http.addHeader("x-emb-gps-key",DEVICE_KEY);
-  int code=http.POST(String(snapshot.json)); diagnosticHttp.store(code);
-  Serial.printf("[REMOTE LOG] HTTP=%d (200=received; 404=deploy diagnostics endpoint)\n",code);
-  http.end();
 }

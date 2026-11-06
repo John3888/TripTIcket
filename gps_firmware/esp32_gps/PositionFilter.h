@@ -9,10 +9,10 @@ struct PositionFilter {
   double lat=0,lng=0,variance=625;
   uint32_t time=0;
   bool initialized=false;
-  unsigned good=0,quietSamples=0;
-  bool candidate=false;
-  double candidateLat=0,candidateLng=0;
-  uint32_t candidateTime=0;
+  unsigned quietSamples=0;
+  unsigned movingSamples=0;
+  bool held=false;
+  double maxSpeedKph=200;
   const char* status="waiting for fix";
   static double longitudeDelta(double to,double from) {
     double delta=std::fmod(to-from+540.0,360.0)-180.0;
@@ -23,48 +23,51 @@ struct PositionFilter {
     double h=std::pow(std::sin((c-a)*rad/2),2)+std::cos(a*rad)*std::cos(c*rad)*std::pow(std::sin(longitudeDelta(d,b)*rad/2),2);
     return 12742000*std::asin(std::sqrt(std::max(0.0,std::min(1.0,h))));
   }
-  bool reject(const char* reason) { status=reason; good=0; quietSamples=0; candidate=false; return false; }
+  bool reject(const char* reason) { status=reason; return false; }
   bool update(double latitude,double longitude,double hdop,unsigned satellites,
               double speed,bool stationary,bool dynamic,uint32_t now) {
     if (!std::isfinite(latitude) || !std::isfinite(longitude) || std::fabs(latitude)>90 || std::fabs(longitude)>180)
       return reject("invalid coordinates");
-    // NaN/zero ancillary values denote unavailable metadata, not a lost location.
-    if ((satellites>0 && satellites<3) || (std::isfinite(hdop) && (hdop<0 || hdop>10)))
-      return reject("poor GPS quality");
-    const bool speedKnown=std::isfinite(speed);
-    if (speedKnown && (speed<0 || speed>300)) return reject("invalid speed");
+    if (std::isfinite(hdop) && hdop>4) return reject("poor HDOP; fix withheld");
+    if (satellites>0 && satellites<4) return reject("too few satellites; fix withheld");
+    if (std::isfinite(speed) && speed>maxSpeedKph) return reject("implausible GPS speed; fix withheld");
+    // Quality metadata controls confidence, never acceptance of a receiver-valid fix.
+    // MPU motion changes responsiveness without inventing coordinates.
+    (void)satellites;
+    const bool speedKnown=std::isfinite(speed) && speed>=0 && speed<=300;
     const double accuracy=std::isfinite(hdop) && hdop>0 ? std::max(5.0,hdop*5) : 25;
     const double r=accuracy*accuracy;
     const double dt=double(uint32_t(now-time))/1000;
     if (initialized && dt<=0) return reject("duplicate sample time");
-    if (initialized && dt>30) {
-      const double elapsed=double(uint32_t(now-candidateTime))/1000;
-      if (!candidate || elapsed<=0 || elapsed>10 || distance(candidateLat,candidateLng,latitude,longitude)>55*elapsed+2*accuracy) {
-        candidate=true; candidateLat=latitude; candidateLng=longitude; candidateTime=now;
-        quietSamples=0; status="confirming reacquired fix"; return false;
-      }
-      initialized=false;
-    }
-    if (!initialized) {
+    if (!initialized || dt>30) {
       lat=latitude; lng=longitude; variance=r; time=now; initialized=true;
-      candidate=false; good=1; status="GPS fix acquired"; return true;
+      quietSamples=0;
+      movingSamples=0; held=false;
+      status="GPS fix acquired"; return true;
     }
+    const bool quiet=!dynamic && (stationary ? !speedKnown || speed<2.5 : speedKnown && speed<0.8);
+    quietSamples=quiet ? std::min(quietSamples+1,3u) : 0;
     const double displacement=distance(lat,lng,latitude,longitude);
-    // A spike never modifies the accepted state or becomes a raw fallback.
-    if (displacement>55*dt+3*std::sqrt(variance+r)) return reject("GPS jump rejected");
-    if (stationary && !dynamic && speedKnown && speed<2) quietSamples=std::min(quietSamples+1,3u);
-    else quietSamples=0;
-    const double holdRadius=std::min(15.0,std::max(8.0,accuracy*1.5));
-    if (quietSamples>=3 && displacement<holdRadius) {
-      time=now; candidate=false; status="stationary drift held"; return true;
+    if (!held && displacement>55*dt+3*std::sqrt(variance+r)) return reject("GPS jump withheld");
+    if (held) {
+      const bool moving=speedKnown ? speed>=2.5 && displacement>=8 : dynamic && displacement>=20;
+      movingSamples=moving ? std::min(movingSamples+1,3u) : 0;
+      if (movingSamples<3) { time=now; status="stationary GPS drift held"; return true; }
+      held=false; movingSamples=0; quietSamples=0;
     }
-    const double process=std::pow(std::max(2.0,(speedKnown ? speed : 18)/3.6),2)*dt*(dynamic ? 2 : 1);
+    if (quietSamples>=3) {
+      held=true;
+      time=now; status="stationary GPS drift held"; return true;
+    }
+    const double process=std::pow(std::max(quiet ? 0.2 : 1.0,(speedKnown ? speed : 10)/3.6),2)*dt*(dynamic ? 1.5 : quiet ? 0.1 : 1.0);
     const double predicted=variance+process;
-    const double gain=predicted/(predicted+r);
+    const double allowance=std::max(15.0,3*std::sqrt(predicted+r))+(speedKnown ? speed/3.6*dt : 0);
+    const double measurement=r*std::max(1.0,std::pow(displacement/allowance,2));
+    const double gain=predicted/(predicted+measurement);
     lat+=gain*(latitude-lat);
     lng+=gain*longitudeDelta(longitude,lng);
     if (lng>180) lng-=360; if (lng< -180) lng+=360;
     variance=std::max(1.0,(1-gain)*predicted); time=now;
-    candidate=false; good=std::min(good+1,3u); status="GPS fix smoothed"; return true;
+    status="GPS fix smoothed"; return true;
   }
 };

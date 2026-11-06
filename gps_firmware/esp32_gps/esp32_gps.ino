@@ -10,6 +10,8 @@
 #include <atomic>
 #include "PositionFilter.h"
 #include "MotionSensor.h"
+#include "GpsNmeaCapture.h"
+#include "UbloxQuality.h"
 #include "NetworkConfig.h"
 #if __has_include("config.h")
 #include "config.h"
@@ -22,6 +24,8 @@
 
 HardwareSerial gpsSerial(1);
 TinyGPSPlus gps;
+GpsNmeaCapture rawNmea;
+UbloxQuality ublox;
 MotionSensor imu;
 PositionFilter filter;
 QueueHandle_t reports;
@@ -32,8 +36,11 @@ std::atomic<const char*> lteStatus{"STARTING"};
 std::atomic<const char*> wifiStatus{"DISABLED (cellular mode)"};
 std::atomic<const char*> backendStatus{"WAITING"};
 std::atomic<int> lastHttpCode{0},lastTlsCode{0};
+std::atomic<bool> websocketConnected{false};
+std::atomic<int> websocketCode{0};
+std::atomic<uint32_t> websocketAcks{0};
 constexpr uint32_t STATUS_INTERVAL_MS = 10000;
-constexpr bool LOG_GPS_STATUS = false; // Keep Serial Monitor focused on GSM debugging.
+constexpr bool LOG_GPS_STATUS = true;
 #include "Diagnostics.h"
 
 void logModuleStatus(uint32_t now, bool hasFix, bool sawBytes, uint32_t lastByte,
@@ -69,8 +76,8 @@ void logModuleStatus(uint32_t now, bool hasFix, bool sawBytes, uint32_t lastByte
         unsigned(IMU_ADDRESS == 0x68 ? 0x69 : 0x68),imu.alternateResponding ? "ACK (check IMU_ADDRESS/AD0)" : "no ACK");
     }
   }
-  Serial.printf("[GSM %lu ms] A7670E: %s | backend=%s | HTTP=%d TLS=%d\n",
-    (unsigned long)now,lteStatus.load(),backendStatus.load(),lastHttpCode.load(),lastTlsCode.load());
+  Serial.printf("[GSM %lu ms] A7670E: %s | backend=%s | WS=%s code=%d TLS=%d\n",
+    (unsigned long)now,lteStatus.load(),backendStatus.load(),websocketConnected.load() ? "connected" : "disconnected",websocketCode.load(),lastTlsCode.load());
   if (TRACKER_USE_WIFI) Serial.printf("[STATUS %lu ms] Wi-Fi: %s\n",(unsigned long)now,wifiStatus.load());
 }
 
@@ -195,107 +202,9 @@ void connectWifi() {
   }
 }
 
-// Decode HTTP framing through HTTPClient and cap the acknowledgement in memory.
-class HttpReplyBuffer : public Stream {
-public:
-  char data[2048]{};
-  size_t used=0;
-  size_t write(uint8_t value) override {
-    if (used>=sizeof(data)-1) return 0;
-    data[used++]=char(value); data[used]=0; return 1;
-  }
-  int available() override { return 0; }
-  int read() override { return -1; }
-  int peek() override { return -1; }
-  void flush() override {}
-};
+#include "TrackerPositionStream.h"
 
-bool postReport(const Report& report) {
-  xQueueOverwrite(lastOutgoing,&report);
-  Serial.printf("[OUTGOING JSON] %s\n",report.json);
-  lastPayloadBytes.store(strlen(report.json));
-  // Retain the last failure during retries; clear it when an ACK is accepted.
-  struct RequestTimer { uint32_t start=millis(); ~RequestTimer() { lastRequestMs.store(millis()-start); } } timer;
-  lastHttpCode.store(0); lastTlsCode.store(0);
-  String endpoint=apiEndpoint();
-  String authority=endpoint.substring(endpoint.indexOf("://")+3);
-  authority=authority.substring(0,authority.indexOf('/'));
-  String host=authority;
-  if (host.startsWith("[")) host=host.substring(1,host.indexOf(']'));
-  else if (host.indexOf(':')>=0) host=host.substring(0,host.indexOf(':'));
-  time_t clockNow=time(nullptr);
-  tm utc{}; gmtime_r(&clockNow,&utc);
-  char clockText[32]; strftime(clockText,sizeof(clockText),"%Y-%m-%dT%H:%M:%SZ",&utc);
-  Serial.printf("[HTTPS] host=%s UTC=%s freeHeap=%lu minFreeHeap=%lu\n",
-    host.c_str(),clockText,(unsigned long)ESP.getFreeHeap(),(unsigned long)ESP.getMinFreeHeap());
-  TrackerHttpsClient tls;
-  NetworkClient plain;
-  NetworkClient& client=TRACKER_USE_HTTPS ? static_cast<NetworkClient&>(tls) : plain;
-  static const char* httpProtocols[]={"http/1.1",nullptr};
-  tls.setAlpnProtocols(httpProtocols);
-  tls.setCACert(ROOT_CA);
-  tls.setHandshakeTimeout(30);
-  HTTPClient http;
-  http.setConnectTimeout(TRACKER_USE_WIFI ? 10000 : 30000);
-  http.setTimeout(15000);
-  http.setReuse(false);
-  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  if (!http.begin(client,endpoint)) {
-    backendStatus.store("HTTPS INITIALIZATION FAILED"); return false;
-  }
-  http.addHeader("Content-Type","application/json");
-  http.addHeader("Accept","application/json");
-  http.addHeader("x-emb-gps-key",DEVICE_KEY);
-  backendStatus.store("CONNECTING / SENDING POSITION POST");
-  int code=http.POST(String(report.json));
-  lastHttpCode.store(code);
-  Serial.printf("[HTTP] POST /api/gps/position -> %d\n",code);
-  bool accepted=false;
-  if (code<=0) {
-    char tlsError[192]{};
-    int tlsCode=TRACKER_USE_HTTPS ? tls.lastError(tlsError,sizeof(tlsError)) : 0;
-    lastTlsCode.store(tlsCode);
-    backendStatus.store(tlsCode==-1 ? "TCP/SOCKET FAILED (check network.error)" :
-      tlsCode==MBEDTLS_ERR_SSL_CONN_EOF ? "TLS PEER CLOSED CONNECTION (server/proxy/network)" :
-      tlsCode<0 ? "TLS/TCP FAILED (see HTTPS error and UTC)" : "HTTP TRANSPORT FAILED (see HTTP code)");
-    Serial.printf("[HTTP] %s\n",HTTPClient::errorToString(code).c_str());
-    Serial.printf("[HTTPS] TLS code=%d detail=%s\n",tlsCode,tlsCode ? tlsError : "no TLS error reported; inspect HTTP code/network");
-    rememberNetworkDetail(tls.connectionDetail.length() ? tls.connectionDetail.c_str() :
-      tlsCode ? tlsError : HTTPClient::errorToString(code).c_str());
-  } else if (code<200 || code>=300) {
-    backendStatus.store(code==401 || code==403 ? "HTTP AUTHORIZATION FAILED (device key/registration)" :
-      code==404 ? "HTTP 404 (check backend URL/proxy route)" :
-      code==400 || code==422 ? "HTTP PAYLOAD REJECTED" :
-      code>=300 && code<400 ? "HTTP REDIRECT (configure final HTTPS API URL)" : "HTTP SERVER/REQUEST ERROR (see code)");
-    HttpReplyBuffer reply;
-    JsonDocument errorBody;
-    if (http.writeToStream(&reply)>=0 && deserializeJson(errorBody,reply.data,reply.used)==DeserializationError::Ok) {
-      const char* error=errorBody["error"] | "HTTP request rejected";
-      rememberNetworkDetail(error); Serial.printf("[HTTP ERROR] %.240s\n",error);
-    } else rememberNetworkDetail(backendStatus.load());
-  } else {
-    HttpReplyBuffer reply;
-    int readResult=http.writeToStream(&reply);
-    JsonDocument ack;
-    if (readResult<0 || deserializeJson(ack,reply.data,reply.used) != DeserializationError::Ok ||
-        !ack["ok"].is<bool>() || !ack["recorded"].is<bool>()) {
-      backendStatus.store("INVALID/INCOMPLETE HTTP ACK (check API route)");
-      Serial.println("[HTTP] Expected a JSON acknowledgement with ok and recorded fields.");
-    } else {
-      accepted=ack["ok"].as<bool>();
-      backendStatus.store(!accepted ? "SERVER REJECTED REPORT" :
-        ack["recorded"].as<bool>() ? "UPLOAD OK; POSITION RECORDED" : "UPLOAD OK; NOT RECORDED (see reason)");
-      Serial.printf("[HTTP] ok=%s recorded=%s reason=%s\n",
-        accepted ? "true" : "false",ack["recorded"].as<bool>() ? "true" : "false",
-        ack["reason"] | "none");
-      rememberNetworkDetail(ack["reason"] | "");
-    }
-  }
-  http.end();
-  return accepted;
-}
-
-// Network operations stay in this task so GPS/IMU sampling never waits for HTTPS.
+// Network operations stay in this task so GPS/IMU sampling never waits for the socket.
 void networkTask(void*) {
   const String endpoint=apiEndpoint();
   const char* configError=networkConfigError(endpoint.c_str(), DEVICE_KEY, ROOT_CA, TRACKER_USE_HTTPS);
@@ -312,7 +221,8 @@ void networkTask(void*) {
     WiFi.mode(TRACKER_DEBUG_AP ? WIFI_AP_STA : WIFI_STA);
     WiFi.setAutoReconnect(true);
   }
-  uint32_t retryAt=0,backoff=2000,postRetryAt=0,postBackoff=2000,lastNtp=0,lastRemoteLog=0;
+  TrackerPositionStream stream;
+  uint32_t retryAt=0,backoff=2000,lastNtp=0;
   bool ntpStarted=false,wasConnected=false;
   for (;;) {
     uint32_t now=millis();
@@ -350,32 +260,17 @@ void networkTask(void*) {
       }
       if (TRACKER_USE_HTTPS && time(nullptr)<1700000000) {
         backendStatus.store("WAITING FOR UTC (GPS or NTP)");
-      } else if (int32_t(now-postRetryAt)>=0) {
-        Report report;
-        if (xQueueReceive(reports,&report,0)==pdTRUE) {
-          // A timed-out POST may already have been recorded: never replay it.
-          // Retry only with the next fresh report from the latest-report queue.
-          if (uint32_t(millis()-report.created)<15000) {
-            if (postReport(report)) { postBackoff=2000; postRetryAt=millis(); }
-            else {
-              postRetryAt=millis()+postBackoff;
-              Serial.printf("[HTTP] Waiting at least %lu ms before a new report; previous report will not be replayed.\n",(unsigned long)postBackoff);
-              postBackoff=std::min(uint32_t(60000),postBackoff*2);
-            }
-          }
-        }
-      }
-      if (TRACKER_REMOTE_DIAGNOSTICS && (!TRACKER_USE_HTTPS || time(nullptr)>=1700000000) && uint32_t(millis()-lastRemoteLog)>=10000) {
-        uploadDiagnostics(); lastRemoteLog=millis();
       }
     }
+    stream.tick(connected && !configError && (!TRACKER_USE_HTTPS || time(nullptr)>=1700000000));
     delay(10);
   }
 }
 void setup() {
+  filter.maxSpeedKph=TRACKER_MAX_SPEED_KPH;
   Serial.begin(115200);
   setenv("TZ","UTC0",1); tzset();
-  Serial.printf("[FIRMWARE] %s | %s | %s\n",FIRMWARE_VERSION,TRACKER_USE_HTTPS ? "HTTPS" : "HTTP",apiEndpoint().c_str());
+  Serial.printf("[FIRMWARE] %s | %s | %s\n",FIRMWARE_VERSION,TRACKER_USE_HTTPS ? "WSS" : "WS",apiEndpoint().c_str());
   Serial.printf("[BOOT] Reset reason: %s (%d)\n",diagnosticResetReason(),int(esp_reset_reason()));
   Serial.printf("Internet transport: %s\n",TRACKER_USE_WIFI ? "Wi-Fi (modem disabled)" : "cellular");
   Serial.println("All-module diagnostics every 10s; location uploads remain GPS-only.");
@@ -384,7 +279,7 @@ void setup() {
   Wire.begin(IMU_SDA_PIN,IMU_SCL_PIN); Wire.setTimeOut(20);
   bool imuReady=imu.begin(IMU_ADDRESS);
   if (imu.debugEnabled) Serial.printf("%s: %s\n",imu.modelName(),imuReady ? "ready" : imu.status);
-  reports=xQueueCreate(1,sizeof(Report));
+  reports=xQueueCreate(16,sizeof(Report));
   diagnosticSnapshots=xQueueCreate(1,sizeof(DiagnosticSnapshot));
   networkDetails=xQueueCreate(1,sizeof(NetworkDetails)); lastOutgoing=xQueueCreate(1,sizeof(Report));
   if (!reports || !diagnosticSnapshots || !networkDetails || !lastOutgoing) {
@@ -414,12 +309,17 @@ void loop() {
   static uint32_t lastByte=0,lastSentence=0,lastStatus=0;
   while (gpsSerial.available()) {
     sawBytes=true; lastByte=millis();
-    if (gps.encode(gpsSerial.read())) { sawSentence=true; lastSentence=lastByte; }
+    char c=char(gpsSerial.read());
+    if (ublox.push(uint8_t(c),lastByte)) continue;
+    rawNmea.push(c);
+    if (gps.encode(c)) { sawSentence=true; lastSentence=lastByte; }
   }
   uint32_t now=millis();
+  static uint32_t lastQualityPoll=0;
+  if (uint32_t(now-lastQualityPoll)>=2000) { gpsSerial.write(UbloxQuality::poll,sizeof(UbloxQuality::poll)); lastQualityPoll=now; }
   static uint32_t lastReport=0,lastAccepted=0,lastImuRetry=0;
-  static double sentLat=0,sentLng=0,sentHeading=0;
-  static bool sentFix=false,valid=false;
+  static bool valid=false;
+  static uint64_t lastFixStamp=UINT64_MAX;
   static bool imuStarted=imu.healthy;
   if (!imuStarted && uint32_t(now-lastImuRetry)>5000) { lastImuRetry=now; imuStarted=imu.begin(IMU_ADDRESS); }
   if (imuStarted) { imu.sample(now); if (!imu.healthy) imuStarted=false; }
@@ -427,12 +327,22 @@ void loop() {
   const bool hdopFresh=gps.hdop.isValid() && gps.hdop.age()<5000;
   const bool satellitesFresh=gps.satellites.isValid() && gps.satellites.age()<5000;
   const bool speedFresh=gps.speed.isValid() && gps.speed.age()<5000;
+  bool newFix=false;
   if (gps.location.isUpdated()) {
     double lat=gps.location.lat(),lng=gps.location.lng();
-    valid=fresh && filter.update(lat,lng,hdopFresh ? gps.hdop.hdop() : NAN,
+    const bool timed=gps.date.isValid() && gps.time.isValid() && gps.time.age()<5000;
+    const uint64_t stamp=(uint64_t(gps.date.value())<<32)|gps.time.value();
+    // RMC and GGA can describe the same epoch; filter/upload that epoch once.
+    const bool duplicate=timed && stamp==lastFixStamp;
+    if (!duplicate) {
+      const bool qualityMatched=ublox.matches(now,gps.date.year(),gps.date.month(),gps.date.day(),gps.time.hour(),gps.time.minute(),gps.time.second());
+      const char* qualityError=qualityMatched ? ublox.error() : nullptr;
+      if (qualityError) { valid=false; filter.status=qualityError; }
+      else valid=fresh && filter.update(lat,lng,hdopFresh ? gps.hdop.hdop() : NAN,
       satellitesFresh ? gps.satellites.value() : 0,speedFresh ? gps.speed.kmph() : NAN,
       imu.healthy && imu.quiet,imu.healthy && imu.dynamic,now);
-    if (valid) lastAccepted=now;
+      if (valid) { lastAccepted=now; newFix=true; if (timed) lastFixStamp=stamp; }
+    }
   }
   if (!fresh) valid=false;
   bool hasFix=valid && uint32_t(now-lastAccepted)<5000;
@@ -441,29 +351,39 @@ void loop() {
     logModuleStatus(now,hasFix,sawBytes,lastByte,sawSentence,lastSentence);
     captureDiagnostics(now,hasFix,sawBytes && uint32_t(now-lastByte)<3000);
   }
-  double heading=gps.course.isValid() && gps.course.age()<3000 ? gps.course.deg() : -1;
-  double turn=heading>=0 ? fabs(heading-sentHeading) : 0; turn=std::min(turn,360-turn);
-  double moved=hasFix && sentFix ? PositionFilter::distance(sentLat,sentLng,filter.lat,filter.lng) : 0;
-  bool moving=hasFix && gps.speed.kmph()>=3;
-  bool due=(uint32_t(now-lastReport)>=10000) || uint32_t(now-lastReport)>=HEARTBEAT_MS || (hasFix && uint32_t(now-lastReport)>=MIN_REPORT_MS &&
-    (!sentFix || moved>=REPORT_DISTANCE_M || (moving && (turn>=REPORT_TURN_DEG || uint32_t(now-lastReport)>=MOVING_REPORT_MS))));
+  // Every accepted receiver sample, including stationary readings, is eligible.
+  // A bounded FIFO preserves samples through brief network delays without blocking sampling.
+  bool due=newFix || uint32_t(now-lastReport)>=10000;
   if (due) {
     JsonDocument doc;
     doc["deviceId"]=DEVICE_ID; doc["hasFix"]=hasFix;
+    doc["motion"]=!imu.healthy || !imu.isCalibrated() ? "unknown" : imu.dynamic ? "moving" : imu.quiet ? "stationary" : "unknown";
     if (hasFix) {
       char timestamp[32];
       snprintf(timestamp,sizeof(timestamp),"%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",gps.date.year(),gps.date.month(),gps.date.day(),gps.time.hour(),gps.time.minute(),gps.time.second(),gps.time.centisecond()*10);
       if (gps.date.isValid() && gps.time.isValid() && gps.date.age()<5000 && gps.time.age()<5000 && gps.date.year()>=2024) doc["recordedAt"]=timestamp;
       doc["latitude"]=filter.lat; doc["longitude"]=filter.lng;
+      if (ublox.matches(now,gps.date.year(),gps.date.month(),gps.date.day(),gps.time.hour(),gps.time.minute(),gps.time.second())) {
+        doc["accuracyMeters"]=ublox.horizontalAccuracy;
+        doc["speedAccuracyKph"]=ublox.speedAccuracy*3.6;
+        doc["gnssFixOk"]=ublox.fixOk; doc["fixType"]=ublox.fixType;
+      }
       if (hdopFresh) doc["hdop"]=gps.hdop.hdop();
       if (satellitesFresh) doc["satellites"]=gps.satellites.value();
       // Backend derives accuracy from HDOP. MPU readings and course stay local.
       if (speedFresh && gps.speed.kmph()<=300) doc["speedKph"]=gps.speed.kmph();
-      sentLat=filter.lat; sentLng=filter.lng; if (heading>=0) sentHeading=heading;
     }
     Report report{}; report.created=now;
-    if (measureJson(doc)<sizeof(report.json)) { serializeJson(doc,report.json,sizeof(report.json)); xQueueOverwrite(reports,&report); }
-    sentFix=hasFix; lastReport=now;
+    if (measureJson(doc)<sizeof(report.json)) {
+      serializeJson(doc,report.json,sizeof(report.json));
+      if (xQueueSend(reports,&report,0)!=pdTRUE) {
+        Report discarded;
+        xQueueReceive(reports,&discarded,0);
+        xQueueSend(reports,&report,0);
+        Serial.println("[GPS] Upload queue full; oldest sample dropped.");
+      }
+    }
+    lastReport=now;
   }
   // TLS time does not depend on satellite count, HDOP, speed or position quality.
   if (gps.date.isValid() && gps.date.age()<3000 && gps.time.isValid() && gps.time.age()<3000 &&

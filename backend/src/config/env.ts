@@ -11,6 +11,7 @@ const schema = z.object({
   JWT_SECRET: z.string().min(24),
   JWT_EXPIRES_IN: z.string().default("1d"),
   EMB_GPS_DEVICE_KEY: z.string().default(""),
+  GPS_MAX_SPEED_KPH: z.coerce.number().positive().max(300).default(200),
   OSRM_URL: z.string().url().default("http://127.0.0.1:5000"),
   GPS_INACTIVE_TIMEOUT_MS: z.coerce.number().int().min(120000).default(180000),
   GPS_TRAIL_MIN_METERS: z.coerce.number().positive().default(15),

@@ -1,6 +1,9 @@
 #pragma once
+#ifndef TRACKER_MAX_SPEED_KPH
+#define TRACKER_MAX_SPEED_KPH 200 // Set 10 only for an explicit walking test.
+#endif
 #ifndef TRACKER_USE_HTTPS
-#define TRACKER_USE_HTTPS 1 // 0=HTTP, 1=HTTPS; applies to positions and remote diagnostics.
+#define TRACKER_USE_HTTPS 1 // 0=WS, 1=WSS; keep the existing API_URL configuration.
 #endif
 static_assert(TRACKER_USE_HTTPS==0 || TRACKER_USE_HTTPS==1, "TRACKER_USE_HTTPS must be 0 or 1");
 inline String apiEndpoint() {
