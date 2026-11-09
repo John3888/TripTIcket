@@ -26,5 +26,5 @@ constexpr double REPORT_DISTANCE_M = 80, REPORT_TURN_DEG = 25;
 
 // Independent of Wi-Fi/cellular; applies to position and diagnostics uploads.
 #ifndef TRACKER_USE_HTTPS
-#define TRACKER_USE_HTTPS 1 // 0 = WS, 1 = WSS; API_URL still uses http(s)://host/api/gps/position
+#define TRACKER_USE_HTTPS 1 // 0 = HTTP POST, 1 = HTTPS POST
 #endif

@@ -1,16 +1,17 @@
-import type { RequestHandler } from "express";
 import { ENV } from "../../config/env.js";
 import * as s from "./gps.services.js";
-export const record: RequestHandler = async (req, res) => {
-  const key = String(req.headers["x-emb-gps-key"] || req.body.deviceKey || "");
-  if (ENV.EMB_GPS_DEVICE_KEY && key !== ENV.EMB_GPS_DEVICE_KEY) {
-    res.status(403).json({ ok: false, error: "GPS device is not authorized." });
-    return;
-  }
-console.log("Content-Type:", req.headers["content-type"]);
-console.log("Body type:", typeof req.body);
-console.log("Body keys:", Object.keys(req.body ?? {}));
+import { devicePostHandler } from "./gps.http.js";
+import { prisma } from "../../config/prismaClient.js";
+import { AppError } from "../../middlewares/error.middleware.js";
+import { saveDiagnostics } from "./gps.diagnostics.js";
 
-res.json(await s.record(req.body));
-  
-};
+export const record = devicePostHandler({ deviceKey: ENV.EMB_GPS_DEVICE_KEY, intervalMs: 1000, record: s.record });
+export const diagnostics = devicePostHandler({
+  deviceKey: ENV.EMB_GPS_DEVICE_KEY, intervalMs: 10000,
+  record: async (body) => {
+    const device = await prisma.trackingDevice.findUnique({ where: { deviceId: body.deviceId } });
+    if (!device?.enabled) throw new AppError(403, "GPS device is not registered or is disabled.");
+    saveDiagnostics(body.deviceId, body);
+    return { ok: true };
+  },
+});

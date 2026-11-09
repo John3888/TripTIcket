@@ -36,9 +36,6 @@ std::atomic<const char*> lteStatus{"STARTING"};
 std::atomic<const char*> wifiStatus{"DISABLED (cellular mode)"};
 std::atomic<const char*> backendStatus{"WAITING"};
 std::atomic<int> lastHttpCode{0},lastTlsCode{0};
-std::atomic<bool> websocketConnected{false};
-std::atomic<int> websocketCode{0};
-std::atomic<uint32_t> websocketAcks{0};
 constexpr uint32_t STATUS_INTERVAL_MS = 10000;
 constexpr bool LOG_GPS_STATUS = true;
 #include "Diagnostics.h"
@@ -76,8 +73,8 @@ void logModuleStatus(uint32_t now, bool hasFix, bool sawBytes, uint32_t lastByte
         unsigned(IMU_ADDRESS == 0x68 ? 0x69 : 0x68),imu.alternateResponding ? "ACK (check IMU_ADDRESS/AD0)" : "no ACK");
     }
   }
-  Serial.printf("[GSM %lu ms] A7670E: %s | backend=%s | WS=%s code=%d TLS=%d\n",
-    (unsigned long)now,lteStatus.load(),backendStatus.load(),websocketConnected.load() ? "connected" : "disconnected",websocketCode.load(),lastTlsCode.load());
+  Serial.printf("[GSM %lu ms] A7670E: %s | backend=%s | HTTP=%d TLS=%d\n",
+    (unsigned long)now,lteStatus.load(),backendStatus.load(),lastHttpCode.load(),lastTlsCode.load());
   if (TRACKER_USE_WIFI) Serial.printf("[STATUS %lu ms] Wi-Fi: %s\n",(unsigned long)now,wifiStatus.load());
 }
 
@@ -202,9 +199,9 @@ void connectWifi() {
   }
 }
 
-#include "TrackerPositionStream.h"
+#include "TrackerHttpUpload.h"
 
-// Network operations stay in this task so GPS/IMU sampling never waits for the socket.
+// Network operations stay in this task so GPS/IMU sampling never waits for HTTPS.
 void networkTask(void*) {
   const String endpoint=apiEndpoint();
   const char* configError=networkConfigError(endpoint.c_str(), DEVICE_KEY, ROOT_CA, TRACKER_USE_HTTPS);
@@ -221,8 +218,7 @@ void networkTask(void*) {
     WiFi.mode(TRACKER_DEBUG_AP ? WIFI_AP_STA : WIFI_STA);
     WiFi.setAutoReconnect(true);
   }
-  TrackerPositionStream stream;
-  uint32_t retryAt=0,backoff=2000,lastNtp=0;
+  uint32_t retryAt=0,backoff=2000,lastNtp=0,postRetryAt=0,postBackoff=2000,lastRemoteLog=0;
   bool ntpStarted=false,wasConnected=false;
   for (;;) {
     uint32_t now=millis();
@@ -262,7 +258,23 @@ void networkTask(void*) {
         backendStatus.store("WAITING FOR UTC (GPS or NTP)");
       }
     }
-    stream.tick(connected && !configError && (!TRACKER_USE_HTTPS || time(nullptr)>=1700000000));
+    if (connected && !configError && (!TRACKER_USE_HTTPS || time(nullptr)>=1700000000)) {
+      now=millis();
+      if (int32_t(now-postRetryAt)>=0) {
+        Report report;
+        if (xQueueReceive(reports,&report,0)==pdTRUE && uint32_t(millis()-report.created)<15000) {
+          if (postReport(report)) { postBackoff=2000; postRetryAt=millis()+1100; }
+          else {
+            // A timed-out POST may already be committed. Do not replay it.
+            postRetryAt=millis()+postBackoff;
+            postBackoff=std::min(uint32_t(60000),postBackoff*2);
+          }
+        }
+      }
+      if (TRACKER_REMOTE_DIAGNOSTICS && uint32_t(millis()-lastRemoteLog)>=10000 && uxQueueMessagesWaiting(reports)<4) {
+        uploadDiagnostics(); lastRemoteLog=millis();
+      }
+    }
     delay(10);
   }
 }
@@ -270,7 +282,7 @@ void setup() {
   filter.maxSpeedKph=TRACKER_MAX_SPEED_KPH;
   Serial.begin(115200);
   setenv("TZ","UTC0",1); tzset();
-  Serial.printf("[FIRMWARE] %s | %s | %s\n",FIRMWARE_VERSION,TRACKER_USE_HTTPS ? "WSS" : "WS",apiEndpoint().c_str());
+  Serial.printf("[FIRMWARE] %s | %s | %s\n",FIRMWARE_VERSION,TRACKER_USE_HTTPS ? "HTTPS POST" : "HTTP POST",apiEndpoint().c_str());
   Serial.printf("[BOOT] Reset reason: %s (%d)\n",diagnosticResetReason(),int(esp_reset_reason()));
   Serial.printf("Internet transport: %s\n",TRACKER_USE_WIFI ? "Wi-Fi (modem disabled)" : "cellular");
   Serial.println("All-module diagnostics every 10s; location uploads remain GPS-only.");

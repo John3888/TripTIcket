@@ -1,6 +1,6 @@
 # Device WebSocket transport
 
-Current firmware: `gps-2026-11-06-websocket-v10`.
+Historical device-WebSocket firmware: `gps-2026-11-06-websocket-v10`. **Current firmware uses HTTPS POST: see [HTTPS.md](HTTPS.md), build `gps-2026-11-06-https-v11`.**
 
 ## v10: M8N bad-fix rejection and receiver evidence
 

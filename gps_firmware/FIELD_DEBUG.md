@@ -1,4 +1,6 @@
-## Current build: gps-2026-11-06-websocket-v10
+**Current device transport: HTTPS POST. See [HTTPS.md](HTTPS.md) for v11 upload and diagnostic instructions. Device WebSocket notes below describe older builds.**
+
+## Current build: gps-2026-11-06-https-v11
 
 **Current transport instructions:** see [WEBSOCKET.md](WEBSOCKET.md). GPS and remote diagnostics now use `/api/gps/stream` over WSS, with one batch per device per second. Check `websocketConnected`, `websocketCode`, and `websocketAcks`; the legacy HTTP upload fields are no longer the position result. The HTTP-specific notes below describe earlier firmware and are retained as troubleshooting history.
 
