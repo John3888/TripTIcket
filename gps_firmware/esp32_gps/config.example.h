@@ -1,5 +1,5 @@
 #pragma once
-#define TRACKER_MAX_SPEED_KPH 200 // Vehicle profile; 10 for a controlled walking test.
+#define TRACKER_MAX_SPEED_KPH 100 // Vehicle profile; 10 for a controlled walking test.
 constexpr char DEVICE_ID[] = "GPS-EMB-024";
 constexpr char DEVICE_KEY[] = "";
 constexpr char API_URL[] = "https://tripticket.jgccorporatesolutions.com/api/gps/position";

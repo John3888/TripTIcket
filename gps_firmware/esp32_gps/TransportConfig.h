@@ -1,6 +1,6 @@
 #pragma once
 #ifndef TRACKER_MAX_SPEED_KPH
-#define TRACKER_MAX_SPEED_KPH 200 // Set 10 only for an explicit walking test.
+#define TRACKER_MAX_SPEED_KPH 500 // Set 10 only for an explicit walking test.
 #endif
 #ifndef TRACKER_USE_HTTPS
 #define TRACKER_USE_HTTPS 1 // 0=HTTP POST, 1=HTTPS POST; applies to GPS and diagnostic uploads.
